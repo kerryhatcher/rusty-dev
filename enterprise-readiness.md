@@ -1,163 +1,165 @@
 # Enterprise Readiness Guide
 
-Large enterprises and government users do not need a perfect project; they
-need a project whose risks are visible, owned, and routinely managed. A mature
-open-source Rust project provides evidence that answers four questions:
+Enterprise security teams and government procurers do not expect zero defects;
+they expect risks to be visible, owned, and systematically controlled. A mature
+Rust project provides inspectable evidence answering four questions:
 
-1. **Who is accountable?** Maintainers, security contacts, release approvers,
-   and the support commitment are public and current.
-2. **Can we trust a release?** The project can show the source revision,
-   protected build, dependencies, hashes, SBOM, and provenance or signature.
-3. **Can we operate it safely?** Installation, configuration, secure defaults,
-   permissions, logging, upgrade paths, and supported environments are clear.
-4. **What happens when it fails?** Vulnerabilities have a private reporting
-   path, a triage process, fixes, advisories, and a published maintenance
-   lifecycle.
+1. **Who is accountable?** Maintainers, security contacts, CODEOWNERS, release
+   approvers, and support commitments are public, role-based, and current.
+2. **Can we verify a release?** Every release links its immutable source commit,
+   protected CI build, locked dependency tree, SHA-256 checksums, CISA-aligned
+   SBOM, crates.io OIDC Trusted Publishing provenance, and SLSA build
+   attestations.
+3. **Can we operate it safely?** Supported platforms, rolling MSRV policy,
+   secure defaults, privilege boundaries, resource caps, and upgrade notes are
+   documented.
+4. **What happens when something breaks?** Private vulnerability reporting,
+   response targets, EU CRA / SLA escalation paths, coordinated GitHub + RustSec
+   advisories, and blameless post-incident corrective actions are established.
 
-Rust reduces many memory-safety risks, but it is not a security program by
-itself. `unsafe`, FFI, parsing, authorization, cryptography, configuration,
-CI, dependencies, and release credentials still need deliberate controls.
+Rust eliminates entire classes of memory-safety bugs in safe code, but it does
+not replace a security program: `unsafe`/FFI boundaries, logic and access-control
+flaws, integer wraparound, denial of service, CI workflow integrity, and
+third-party crates still require explicit engineering controls.
 
 ## Golden-pattern maturity model
 
 | Stage | Minimum outcome | Evidence an adopter can inspect |
 | --- | --- | --- |
-| Foundation | A usable and legally clear project | README, LICENSE, versioning policy, `CONTRIBUTING.md`, supported platforms |
-| Controlled development | Changes are reviewed and automatically checked | protected branch/ruleset, CODEOWNERS, CI status checks, locked builds |
-| Secure supply chain | Dependencies and build inputs are constrained and monitored | `Cargo.lock`, `deny.toml`, RustSec results, action pins, SBOM |
-| Trusted releases | Artifacts are attributable and verifiable | release notes, checksums, provenance/attestation or signature, verification instructions |
-| Sustainable operations | Security and maintenance are predictable | `SECURITY.md`, support window, advisory history, changelog, deprecation and incident process |
+| **1. Foundation** | Legally clear, buildable, and documented | `README.md`, `LICENSE-MIT` + `LICENSE-APACHE`, `CONTRIBUTING.md`, rolling MSRV & platform tiers |
+| **2. Controlled development** | Reviewed, deterministic changes | GitHub Rulesets, `CODEOWNERS`, SHA-pinned CI, `zizmor`, `--locked` builds, `#[expect]` lints |
+| **3. Secure supply chain** | Constrained, aged, and audited dependencies | Committed `Cargo.lock`, cooldowns (`global-min-publish-age` + Dependabot), `deny.toml`, `supply-chain/` (`cargo vet --locked`) |
+| **4. Trusted releases** | Verifiable, secretless release artifacts | `release-plz` PR history, crates.io OIDC Trusted Publishing, `cargo-auditable`, CISA 2026 SBOM, `SHA256SUMS`, SLSA v1.2 attestations |
+| **5. Sustainable operations** | Predictable maintenance and incident response | `SECURITY.md`, `GOVERNANCE.md`, `SUPPORT.md`, scheduled advisory scans, RustSec advisory history, deprecation notices |
 
-Treat the first three stages as the starting requirement for a new public
-project. Treat the last two as required before presenting the project as a
-supported production dependency.
+Treat Stages 1–3 as the baseline for any public repository, and Stages 4–5 as
+mandatory before marketing a project as production-ready infrastructure.
 
 ## What to publish in the repository
 
 | Artifact | Owner | What it must answer |
 | --- | --- | --- |
-| `README.md` | maintainers | What does it do, who should use it, supported OS/architectures, quick start, security-relevant defaults and limits? |
-| `LICENSE*` and notices | governance/legal owner | May we use, modify, redistribute, and receive patent rights? Are third-party notices handled? |
-| `SECURITY.md` | security response owner | Where do we report privately, which versions are supported, and what response timeline applies? |
-| `SUPPORT.md` or support section | maintainers | Which releases receive fixes, how long, where users get help, and what is explicitly out of scope? |
-| `GOVERNANCE.md` | project lead | Who decides, how are maintainers added/removed, how are conflicts and emergency decisions handled? |
-| `CONTRIBUTING.md` and `CODEOWNERS` | maintainers | How changes are tested, reviewed, licensed, and approved—especially for security and release files. |
-| `CHANGELOG.md` and release notes | release manager | What changed, upgrade/breaking-change guidance, and security fixes. |
-| `docs/security/` | security lead | Threat model, hardening guidance, cryptographic and key-management assumptions, abuse/resource limits, and deployment guidance. |
+| `README.md` | maintainers | Purpose, supported OS/architectures, rolling MSRV policy, quick start, verification commands, and safe operational limits |
+| `LICENSE-MIT`, `LICENSE-APACHE`, notices | governance/legal | Patent and redistribution rights, plus any required third-party notices |
+| `SECURITY.md` | security response owner | Private reporting channels, supported versions, triage SLAs, EU CRA posture, and RustSec disclosure flow |
+| `SUPPORT.md` (or README section) | maintainers | Supported release lines, maintenance window, community vs commercial support, and deprecation policy |
+| `GOVERNANCE.md` | project lead | Decision rules, maintainer onboarding/emeritus rules, crates.io team ownership, and break-glass controls |
+| `CONTRIBUTING.md`, `AGENTS.md`, `CODEOWNERS` | maintainers | Local `just ci` workflow, coding/agent guardrails, dual-license notice, and mandatory reviewers for sensitive paths |
+| `CHANGELOG.md` and release notes | release automation (`release-plz`) | User-visible changes, MSRV bumps, breaking-change migration steps, and security fixes |
+| `docs/security/` | security lead | Threat model, cryptographic choices (`rustls`, `zeroize`), `unsafe`/FFI inventory, and deployment hardening |
 
-Do not publish names or individual contact details without consent. Use a
-role mailbox or GitHub security advisory reporting where possible so the
-process survives maintainer turnover.
+Avoid publishing personal email addresses or phone numbers without consent; use
+GitHub Private Vulnerability Reporting, GitHub teams, and role mailboxes so
+continuity survives individual turnover.
 
 ## Repository and organization controls
 
-Protect `main` (and release branches) with GitHub rulesets or equivalent:
+Enforce platform controls via GitHub Rulesets and Organization Security
+Configurations—not just prose guidelines:
 
-- Require pull requests, passing required checks, resolved review comments,
-  and at least one independent approval. Require CODEOWNER approval for CI,
-  release, dependency-policy, security-policy, and unsafe/FFI areas.
-- Dismiss stale approvals when code changes; block direct pushes, force pushes,
-  deletion, and administrator bypass except for a narrowly documented
-  break-glass process.
-- Require signed commits where your organization can operate that reliably,
-  and require a linear, attributable history.
-- Give humans least-privilege roles; use teams rather than personal accounts;
-  remove access promptly; protect organization ownership with recovery-ready
-  accounts and MFA.
-- Give every workflow an explicit minimal `permissions:` block. Use OIDC and
-  short-lived cloud credentials rather than long-lived deployment secrets.
-  Never run untrusted pull-request code with write tokens or release secrets.
-- Pin third-party GitHub Actions by full commit SHA, verify their origin, and
-  restrict which actions and reusable workflows may run.
-
-These controls should be enforced by platform policy where available, not only
-described in a markdown file.
+- **Branch & tag rulesets:** Require pull requests, passing status checks,
+  resolved conversations, linear history, CODEOWNER review on sensitive paths,
+  dismissal of stale approvals, and tag protection locking `v*` tags to the
+  release app.
+- **Identity & registry resilience:** Require phishing-resistant MFA across org
+  members, grant least-privilege team roles, assign crates.io ownership to a
+  GitHub Team (`github:org:team`), and publish via crates.io OIDC Trusted
+  Publishing rather than personal API tokens.
+- **Hardened GitHub Actions:** Set top-level `permissions: contents: read`, pin
+  every action by 40-character commit SHA, audit workflows with `zizmor`,
+  enable Secret Scanning Push Protection, and isolate release credentials/OIDC
+  inside protected GitHub Environments.
 
 ## Release evidence packet
 
-For every production release, publish or retain a packet linked from the
-release notes:
+For every production release, publish and retain a verifiable evidence set:
 
-1. Version, immutable source tag/commit, changelog, compatibility and upgrade
-   notes.
-2. Per-platform artifacts with SHA-256 checksums; signatures where your users
-   require them.
-3. A CycloneDX or SPDX SBOM produced for the actual release feature set. Do
-   not describe development-only dependencies as shipped components.
-4. Build provenance—at minimum the repository, commit, workflow identity, and
-   artifact digest—plus instructions to verify it.
-5. CI evidence: test/platform matrix, quality gates, dependency/advisory
-   checks, and the disposition of any accepted risk.
-6. Vulnerability and support status: current supported releases, fixed
-   advisories, known limitations, and any configuration required to run safely.
+1. **Source & change record:** Immutable `vX.Y.Z` tag, `CHANGELOG.md` entry,
+   `cargo-semver-checks` compatibility verification, and MSRV compatibility.
+2. **Auditable binaries & hashes:** Binaries compiled with `cargo auditable build --release --locked`
+   plus `SHA256SUMS`.
+3. **CISA 2026-compliant SBOM:** CycloneDX (`cargo-cyclonedx`) or SPDX 2.3
+   (`cargo-sbom`) generated from the exact release target/features (excluding
+   dev-dependencies), capturing **component hashes**, **licenses**, **SBOM tool
+   name**, **transitive coverage**, and **generation context**.
+4. **Build & source provenance (SLSA v1.2):** GitHub Artifact Attestations
+   (`actions/attest-build-provenance@v4`) binding artifact digests to the
+   repository, commit, and release workflow, alongside `gh attestation verify`
+   instructions.
+5. **CI & risk disposition:** Passing cross-platform test logs, `cargo-deny` /
+   `cargo-audit` results, and documented, time-bounded `cargo-vet` exemptions.
 
-An SBOM says what was included; provenance says where and how the artifact was
-built. Neither alone proves that the software is safe. Together they make
-verification and incident response much faster.
+## Start new or retrofit an existing project
 
-## Start new / retrofit existing
+### 1. Inventory and assign owners
 
-{% stepper %}
+Catalog crates, binaries, container images, registries, supported platforms,
+maintainers, secrets, workflows, and downstream consumers. Name a release owner
+and a security-response owner, and add crates.io GitHub Team ownership.
 
-### Inventory and assign owners
+### 2. Close public-trust and governance gaps
 
-List binaries, libraries, container images, publish locations, supported
-platforms, maintainers, secrets, CI workflows, dependencies, and users who
-consume releases. Name a release owner and a security-response owner.
+Add `LICENSE-MIT` + `LICENSE-APACHE`, `SECURITY.md` (with GitHub Private
+Vulnerability Reporting enabled), `CONTRIBUTING.md`, `AGENTS.md`, `CODEOWNERS`,
+and a realistic support/MSRV policy.
 
-### Close the public-trust gaps
+### 3. Lock down paths to `main` and `release`
 
-Add accurate licensing, `SECURITY.md`, support window, contribution rules,
-CODEOWNERS, changelog, and an issue/decision process. Do not promise SLAs the
-project cannot meet.
+Enable branch and `v*` tag rulesets, Secret Scanning Push Protection,
+least-privilege workflow `permissions:`, full-SHA action pins, `zizmor` workflow
+scanning, and Dependabot with `groups:` and `cooldown:`.
 
-### Lock down the path to main and release
+### 4. Make builds deterministic and modern
 
-Turn on rulesets, required checks, least-privilege workflow permissions, SHA
-pinned actions, secret scanning, and dependency updates. Use a separate,
-protected release environment for credentials.
+Adopt `edition = "2024"` and a rolling MSRV, commit `Cargo.lock`, configure
+Cargo's `global-min-publish-age`, enforce `[lints]` with `#[expect(..., reason = "...")]`,
+and run `--locked` across `just ci` and GitHub Actions.
 
-### Make the build repeatable and observable
+### 5. Layer supply-chain and release trust
 
-Commit the application lockfile; use `--locked` in CI and release builds; pin
-the Rust toolchain; run the documented checks locally and in CI. Generate an
-SBOM and checksums from the exact release build.
+Enable `cargo-audit` and `cargo-deny`, then establish `cargo-vet` (`--locked`)
+with imported peer audits and time-bounded exemptions. Switch releases to
+`release-plz` with crates.io OIDC Trusted Publishing, `cargo-auditable`, CISA
+2026 SBOMs, and `actions/attest-build-provenance@v4`.
 
-### Introduce supply-chain and security controls gradually
+### 6. Operate, test, and improve continuously
 
-Begin with `cargo audit`/`cargo deny`, then establish `cargo vet` policy and
-document time-bounded exemptions with owners and rationale. Add threat models,
-fuzzing/property tests, provenance, and reproducibility work in priority order
-from the project threat model.
+Add `proptest`, `cargo-fuzz`, `cargo-mutants`, and Miri/Kani according to your
+threat model; rehearse a private advisory + RustSec submission; review `cargo-vet`
+and `deny.toml` expirations quarterly; and turn every incident into an automated
+regression check.
 
-### Operate and improve
+## Procurement and regulatory posture
 
-Practice an advisory release, review access and dependency exceptions on a
-cadence, publish deprecations early, and perform a blameless post-incident
-review that changes code, controls, or documentation.
+Maintain a lightweight procurement packet linking this repository's controls to
+adopter frameworks:
 
-{% endstepper %}
-
-## Procurement and compliance posture
-
-Keep a concise response pack for security questionnaires: this page's
-evidence, the current SBOM/provenance locations, supported-version policy,
-security contact, and mappings from controls to customer frameworks. For US
-federal use, the producer attestation expectations derive from the SSDF and
-OMB software supply-chain guidance; a project should obtain legal and
-compliance review before claiming eligibility or submitting an attestation.
-
-The [OpenSSF Best Practices Badge](https://www.bestpractices.dev/) and
-[OpenSSF Scorecard](https://securityscorecards.dev/) are useful transparent
-signals, but are not substitutes for a customer's risk assessment or an
-applicable government attestation.
+- **US Federal (SSDF, OMB M-26-05, & CISA 2026 SBOM):** Federal agencies evaluate
+  secure development practices against **NIST SP 800-218 (SSDF v1.1)** and AI
+  governance supplement **SP 800-218A**. Under **OMB Memorandum M-26-05** (which
+  rescinded the blanket M-22-18/M-23-16 universal mandate in favor of risk-based
+  agency procurement), agencies still routinely require CISA Secure Software
+  Development Attestations and machine-readable SBOMs meeting **CISA's July 2026
+  Minimum Elements** via contract clauses. Obtain legal/compliance review before
+  signing formal government attestations.
+- **European Union (Cyber Resilience Act — CRA):** Commercial manufacturers
+  placing software on the EU market are subject to **Article 14 mandatory 24h/72h
+  reporting** of actively exploited vulnerabilities (live **September 11, 2026**)
+  and full CE-marking, security-lifecycle, and SBOM mandates taking effect
+  **December 11, 2027** (when deferred Open-Source Steward obligations also
+  apply). Automated SBOMs, `cargo-auditable`, and coordinated disclosure make
+  24-hour impact triage achievable.
+- **Transparent public signals:** [OpenSSF Best Practices Badge](https://www.bestpractices.dev/)
+  and [OpenSSF Scorecard](https://securityscorecards.dev/) give prospective
+  adopters automated visibility into branch protection, pinned dependencies, and
+  token permissions, complementing—not replacing—customer risk review.
 
 ## Source documents
 
-- [NIST SP 800-218 SSDF](https://doi.org/10.6028/NIST.SP.800-218)
+- [NIST SP 800-218: Secure Software Development Framework (SSDF)](https://doi.org/10.6028/NIST.SP.800-218)
+- [CISA 2026 Minimum Elements for a Software Bill of Materials (SBOM)](https://www.cisa.gov/sbom)
 - [CISA Software Acquisition Guide for Government Enterprise Consumers](https://www.cisa.gov/resources-tools/resources/software-acquisition-guide-government-enterprise-consumers)
-- [OpenSSF Best Practices Badge](https://openssf.org/projects/best-practices-badge/)
-- [OpenSSF Scorecard](https://securityscorecards.dev/)
-- [SLSA v1.0 specification](https://slsa.dev/spec/v1.0/)
-- [GitHub rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets)
-- [GitHub Actions secure use reference](https://docs.github.com/en/actions/reference/security/secure-use)
+- [EU Cyber Resilience Act (Regulation (EU) 2024/2847)](https://eur-lex.europa.eu/eli/reg/2024/2847/oj)
+- [SLSA v1.2 specification](https://slsa.dev/spec/v1.2/)
+- [OpenSSF Best Practices Badge](https://www.bestpractices.dev/) & [OpenSSF Scorecard](https://securityscorecards.dev/)
+- [GitHub Rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets)

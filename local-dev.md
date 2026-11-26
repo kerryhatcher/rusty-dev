@@ -1,16 +1,18 @@
 # Local Development
 
-A great local development experience is the foundation of a healthy project.
-Developers should be able to clone, build, test, and run the full check suite
-with minimal friction.
+A frictionless local development setup keeps quality high: contributors—human
+and AI coding agents alike—should be able to clone the repository, install
+prebuilt tooling in under a minute, and run the exact same checks CI enforces.
 
 ## The `justfile`
 
 A `justfile` is the single entry point for every development task. Developers
-run `just` to see available recipes and `just ci` to run everything:
+run `just` to list available recipes and `just ci` to run the full check suite:
 
 ```makefile
-# Run `just` with no args to list recipes, or `just ci` to run all checks.
+# List available recipes by default, or run `just ci` to execute every check.
+default:
+    @just --list
 
 # Check formatting without modifying files.
 fmt:
@@ -20,13 +22,22 @@ fmt:
 fmt-fix:
     cargo fmt
 
-# Lint, treating warnings as errors.
+# Lint all targets and features, treating warnings as errors.
 lint:
-    cargo clippy --all-targets -- -D warnings
+    cargo clippy --all-targets --all-features --locked -- -D warnings
 
-# Run the test suite.
+# Verify rustdoc builds cleanly with no broken intra-doc links.
+doc:
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features --locked
+
+# Run the test suite (nextest + doctests).
 test:
-    cargo test
+    cargo nextest run --locked
+    cargo test --doc --locked
+
+# Check public API compatibility against the latest crates.io release (libraries).
+semver:
+    cargo semver-checks --locked
 
 # Check dependencies against the RustSec advisory database.
 audit:
@@ -44,107 +55,113 @@ deny:
 trivy:
     trivy fs --scanners vuln,secret --exit-code 1 --skip-dirs target .
 
-# Check the dependency tree against our supply-chain trust policy.
-vet:
-    cargo vet check
+# Audit GitHub Actions workflows for security vulnerabilities.
+zizmor:
+    zizmor .github/workflows
 
-# Report unsafe-code usage (informational).
+# Verify the dependency tree against our locked supply-chain trust policy.
+vet:
+    cargo vet --locked
+
+# Report unsafe-code usage (informational; leading `-` ignores nonzero exit).
 geiger:
     -cargo geiger
 
 # Run every check. Fails fast on the first failing recipe.
-ci: fmt lint test audit msrv deny trivy vet geiger
+ci: fmt lint doc test audit msrv deny trivy zizmor vet geiger
 ```
 
 ### Why `just`?
 
-- **Self-documenting** — `just` lists every recipe with its comment.
-- **Cross-platform** — works on Linux, macOS, and Windows.
-- **Fail-fast** — `just ci` stops at the first failure.
-- **Simple** — each recipe is a single shell command.
+- **Self-documenting** — `just` prints every recipe alongside its comment.
+- **Cross-platform** — behaves consistently on Linux, macOS, and Windows.
+- **CI parity** — every recipe uses `--locked` where applicable so local checks
+  match CI behavior bit-for-bit.
+- **Fail-fast** — `just ci` stops immediately at the first failing gate.
 
-## The `CLAUDE.md` file
+## `AGENTS.md` and `CLAUDE.md`
 
-A `CLAUDE.md` file provides guidance to AI coding assistants (Claude Code,
-Cursor, etc.) about the project's conventions and invariants:
+Modern teams use multiple AI coding assistants (Claude Code, Codex, Cursor,
+Antigravity, etc.). Keep project instructions in **`AGENTS.md`**—the open,
+vendor-neutral standard—and have **`CLAUDE.md`** import it via `@AGENTS.md` so
+instructions never drift across tools:
 
 ```markdown
-# CLAUDE.md
-
-This file provides guidance to Claude Code when working with code in this
-repository.
+<!-- AGENTS.md -->
+# Project Agent Guidelines
 
 ## Checks
 
-Run `just ci` before claiming a change is done — it chains fmt, lint, test,
-audit, msrv, deny, trivy, vet, and geiger, failing fast. `just fmt` is
-`cargo fmt --check` (verify only); use `just fmt-fix` to actually reformat.
+Run `just ci` before claiming a change is complete—it chains fmt, lint, doc,
+test, audit, msrv, deny, trivy, zizmor, vet, and geiger, failing fast.
+`just fmt` verifies formatting without writing; use `just fmt-fix` to reformat.
 
 ## Invariants
 
-- **Never panic on input.** Partial or wrong-typed JSON must degrade to a
-  shorter statusline; stdin that is not JSON, or is empty, must print nothing
-  and exit 0.
-- **MSRV is 1.85.1** (`rust-version` in Cargo.toml, pinned in CI). Do not use
-  stdlib APIs stabilized after it, and do not raise it casually.
-- **Keep the dependency tree small.** Every new dependency needs a
-  justification and a `cargo vet` entry.
+- **Never panic on untrusted input.** Malformed, truncated, or empty input must
+  return a structured `Result` error or degrade gracefully—never `unwrap` or
+  `expect` on external data.
+- **Edition is 2024; MSRV is 1.96** (`rust-version` in `Cargo.toml`, rolling N-4
+  policy, enforced in CI). Do not use APIs stabilized after MSRV without an
+  explicit MSRV bump PR.
+- **Keep the dependency tree small.** Every new dependency requires a rationale
+  in the PR and a `cargo vet` audit or time-bounded exemption.
 
 ## Code standards
 
-- Clippy `pedantic` and `nursery` are enabled and CI runs `-D warnings`.
-  When a lint is genuinely wrong, `#[allow(...)]` it with a comment explaining
-  why.
-- Unit tests live in a `mod tests` block beside the code; integration tests
-  live in `tests/`. A bug fix ships with the test that would have caught it.
+- `[lints.clippy]` enables `all` and `pedantic` plus targeted restriction lints,
+  and CI runs `-D warnings`. When a lint must be suppressed, use
+  `#[expect(clippy::..., reason = "...")]`—never undocumented `#[allow]`.
+- Unit tests live in `mod tests` beside the code; integration tests live in
+  `tests/`. Every bug fix ships with a regression test.
 
 ## Repo etiquette
 
-- Branch off `main` — direct pushes are blocked by branch protection.
-- Use Conventional Commits; release-please derives the version bump and
-  changelog from the prefix.
-- Never hand-edit the `version` field in `Cargo.toml` or `CHANGELOG.md`.
-  Release automation owns both files.
+- Branch off `main` — direct pushes are blocked by repository rulesets.
+- Use Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`,
+  `test:`); `release-plz` combines these with `cargo-semver-checks` to compute
+  the next version and changelog.
+- Never hand-edit `version` in `Cargo.toml` or `CHANGELOG.md`; `release-plz`
+  owns both via automated Release PRs.
+```
+
+And in `CLAUDE.md`:
+
+```markdown
+@AGENTS.md
 ```
 
 ## The `CONTRIBUTING.md` file
 
-A good `CONTRIBUTING.md` answers every question a new contributor might have:
+A good `CONTRIBUTING.md` answers every question a new contributor has on day one:
 
-### What to include
-
-1. **Finding something to work on** — link to issues, especially `good first
-   issue` labels.
-2. **Development setup** — how to clone, build, and test.
+1. **Finding work** — link to issues, highlighting `good first issue` labels.
+2. **Fast tool setup** — prebuilt binary installation via `cargo-binstall`.
 3. **The check suite** — a table of every `just` recipe and what it protects.
-4. **Code standards** — testing expectations, clippy discipline, dependency
-   rules.
-5. **Pull request process** — branch strategy, commit message format, CI
-   requirements.
-6. **Release process** — how releases work (automated, not manual).
+4. **Code standards** — `#[expect(..., reason = "...")]` lint discipline, test
+   expectations, panic policy, and dependency rules.
+5. **Pull request & release flow** — Conventional Commits, branch rulesets, and
+   automated `release-plz` PRs.
+6. **Dual-licensing notice** — explicit confirmation that contributions are
+   submitted under `MIT OR Apache-2.0`.
 
-### Example check suite table
+### Fast tool installation with `cargo-binstall`
 
-| Recipe | Command | What it protects |
-|--------|---------|------------------|
-| `just fmt` | `cargo fmt --check` | Formatting, unmodified |
-| `just lint` | `cargo clippy --all-targets -- -D warnings` | Lints — pedantic and nursery |
-| `just test` | `cargo test` | The test suite |
-| `just audit` | `cargo audit` | Known advisories in the dependency tree |
-| `just msrv` | `cargo msrv verify` | MSRV drift from dependency bumps |
-| `just deny` | `cargo deny check` | Licenses, banned crates, duplicates |
-| `just trivy` | `trivy fs` | Vulnerabilities and hardcoded secrets |
-| `just vet` | `cargo vet check` | Supply-chain trust policy |
-| `just geiger` | `cargo geiger` | Unsafe usage — informational |
-
-### Tool installation
+Compiling 8+ Rust subcommands from source with `cargo install` can take 15
+minutes on a laptop. Recommend [`cargo-binstall`](https://github.com/cargo-bins/cargo-binstall)
+so contributors fetch verified prebuilt binaries in seconds:
 
 ```bash
-cargo install just cargo-audit cargo-msrv cargo-deny cargo-vet cargo-geiger
+cargo install cargo-binstall --locked
+cargo binstall -y just cargo-nextest cargo-semver-checks cargo-audit cargo-msrv cargo-deny cargo-vet zizmor cargo-geiger
 # trivy: https://trivy.dev/latest/getting-started/installation/
 ```
 
 ## The `.gitignore` file
+
+Note that `Cargo.lock` is **intentionally not ignored**—commit it for
+applications, and typically for libraries as well (see
+[Dependency Management](dependencies.md#lockfile-management)).
 
 ```gitignore
 # Generated by Cargo
@@ -154,18 +171,24 @@ target
 # rustfmt backups
 **/*.rs.bk
 
-# MSVC Windows builds
+# MSVC Windows debug symbols
 *.pdb
 
-# Mutation testing
-**/mutants.out*/
+# Compiler ICE dumps
+rustc-ice-*.txt
 
-# Personal settings (not committed)
+# Mutation testing & coverage outputs
+**/mutants.out*/
+lcov.info
+
+# Local agent / editor settings (not committed)
 .claude/settings.local.json
 ```
 
 ## Further reading
 
 - [just documentation](https://just.systems/man/en/)
-- [Claude Code documentation](https://docs.claude.com/en/docs/claude-code/overview)
-- [GitHub: CONTRIBUTING.md best practices](https://docs.github.com/en/communities/setting-up-your-project-for-healthy-contributions/setting-guidelines-for-repository-contributors)
+- [AGENTS.md specification](https://agents.md/)
+- [Claude Code documentation](https://code.claude.com/docs/en/overview)
+- [cargo-binstall](https://github.com/cargo-bins/cargo-binstall)
+- [GitHub: Setting guidelines for repository contributors](https://docs.github.com/en/communities/setting-up-your-project-for-healthy-contributions/setting-guidelines-for-repository-contributors)

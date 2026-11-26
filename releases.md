@@ -1,285 +1,274 @@
 # Release Automation
 
-Releases should be boring and verifiable. Automate the mechanical work, but
-retain an explicit, accountable approval for a production release. Every tag,
-GitHub release, binary artifact, and crates.io publish should be produced by
-the protected release workflow—not by a developer's laptop.
+Releases should be boring, deterministic, and cryptographically verifiable.
+Automate version calculation, changelog generation, lockfile updates, crates.io
+publishing, binary builds, SBOM generation, and provenance attestations—while
+keeping an explicit human review gate on the Release PR. Every tag, crates.io
+package, and binary artifact must come from a protected CI workflow, never from
+a developer's laptop.
 
-## Conventional Commits
+## Rust-native release automation with `release-plz`
 
-[Conventional Commits](https://www.conventionalcommits.org) is the foundation
-of automated releases. Every commit message follows a structured format:
+[`release-plz`](https://release-plz.dev/) is the Rust-native release automation
+tool built specifically around Cargo workspaces, [Conventional Commits](https://www.conventionalcommits.org),
+and [`cargo-semver-checks`](https://github.com/obi1kenobi/cargo-semver-checks).
 
-```
-feat: add config file and JSONL logging
-fix: degrade unexpectedly-typed JSON fields to None
-docs: update README with installation instructions
-chore: bump cargo-deny to 0.18.0
-ci: add macOS to the test matrix
-refactor: extract config parsing into its own module
-test: add edge-case tests for empty payload
-```
+Unlike generic language-agnostic release bots, `release-plz`:
 
-The prefix determines the version bump:
+1. **Combines Conventional Commits with `cargo-semver-checks`** — even if a PR
+   was labeled `fix:` or `feat:`, if `cargo-semver-checks` detects an accidental
+   public API break in a library crate, `release-plz` computes a semver-safe
+   breaking version bump automatically and notes the API break in the PR.
+2. **Updates `Cargo.lock` *inside* the Release PR** — `Cargo.toml`,
+   `Cargo.lock`, and `CHANGELOG.md` are all updated and tested on the Release PR
+   *before* merging, so the tagged release commit is clean and never requires
+   post-tag lockfile mutation.
+3. **Supports crates.io OIDC Trusted Publishing natively** — exchanges GitHub's
+   short-lived OIDC token directly with crates.io without storing a long-lived
+   `CARGO_REGISTRY_TOKEN` secret.
 
-| Prefix | Bump | Example |
-|--------|------|---------|
-| `fix:` | Patch (0.0.x) | Bug fixes |
-| `feat:` | Minor (0.x.0) | New features |
-| `feat!:` or `BREAKING CHANGE:` | Major (x.0.0) | Breaking changes |
+### Commit conventions
 
-Other prefixes (`docs:`, `chore:`, `ci:`, `refactor:`, `test:`) do not
-trigger a release.
+| Prefix | Typical Bump | Example |
+|--------|--------------|---------|
+| `fix:` | Patch (`0.1.x` / `1.0.x`) | `fix: degrade wrong-typed JSON fields to None` |
+| `feat:` | Minor (`1.x.0`) | `feat: add TOML config file support` |
+| `feat!:` / `BREAKING CHANGE:` (or API break caught by `cargo-semver-checks`) | Major (`x.0.0`, or minor on `0.x`) | `feat!: require structured Error return` |
 
-## release-please
+Non-user-facing prefixes (`docs:`, `chore:`, `ci:`, `refactor:`, `test:`) do not
+trigger a release on their own.
 
-[release-please](https://github.com/googleapis/release-please) automates the
-release process. It maintains a **release PR** that is updated on every merge
-to `main`. When the release PR is merged, it:
+### Configuration (`release-plz.toml`)
 
-1. Creates a Git tag (`v0.3.0`).
-2. Creates a GitHub Release with auto-generated release notes.
-3. Triggers downstream workflows (binary builds, crates.io publish).
+```toml
+# release-plz.toml
+[workspace]
+changelog_update = true
+dependencies_update = false     # Dependabot owns external dependency updates
+git_release_enable = true       # Create GitHub Release when tag is published
+pr_labels = ["release"]
+semver_check = true             # Run cargo-semver-checks when computing bumps
 
-### Configuration
-
-```json
-{
-  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
-  "release-type": "rust",
-  "include-component-in-tag": false,
-  "include-v-in-tag": true,
-  "packages": {
-    ".": {
-      "release-type": "rust",
-      "package-name": "my-crate"
-    }
-  }
-}
+[[package]]
+name = "my-crate"
+git_tag_name = "v{{ version }}"
 ```
 
-```json
-{
-  ".": "0.1.0"
-}
-```
+### Rules to preserve clean automation
 
-### What release-please does
+- **Never hand-edit `version` in `Cargo.toml` or `CHANGELOG.md`.** Merge the
+  automated Release PR when you are ready to ship.
+- **Bootstrap `0.1.0` once manually.** Crates.io requires the very first release
+  of a brand-new crate name to be published manually so you can configure
+  Trusted Publishing settings on crates.io; every subsequent release runs
+  hands-free via OIDC.
 
-- **Derives the version** from commit messages since the last release.
-- **Updates `Cargo.toml`** — bumps the `version` field.
-- **Updates `CHANGELOG.md`** — appends a new changelog section.
-- **Opens/updates a release PR** — a single PR that accumulates changes until
-  you decide to merge it.
-- **Creates the tag and release** — when the release PR is merged.
+## Crates.io OIDC Trusted Publishing setup
 
-### What you must never do
+Before automating releases, configure **Trusted Publishing** on crates.io so no
+long-lived crates.io API token is stored in GitHub Secrets:
 
-- **Never hand-edit the `version` field in `Cargo.toml`.** Release automation
-  owns it. If you edit it manually, the next release will conflict.
-- **Never hand-edit `CHANGELOG.md`.** The changelog is auto-generated from
-  commit messages. Hand-edits will be overwritten.
+1. Open your crate on [crates.io](https://crates.io) → **Settings** → **Trusted
+   Publishing**.
+2. Add a GitHub configuration specifying your **Repository owner**, **Repository
+   name**, **Workflow filename** (`release.yml`), and **Environment**
+   (`release`).
+3. Create a matching protected `release` environment in GitHub (**Settings →
+   Environments**) restricted to the `main` branch (and optional required
+   reviewers).
 
-## The release workflow
+*(Note: If you ever maintain a custom workflow that invokes `cargo publish`
+directly instead of `release-plz`, use the official
+`rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6`
+to exchange the OIDC JWT for a temporary `CARGO_REGISTRY_TOKEN`.)*
+
+## The release workflow (`.github/workflows/release.yml`)
 
 ```yaml
-name: release-please
+name: Release
 
 on:
   push:
     branches: [main]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
-  release-please:
-    name: release-please
+  # Opens or updates the Release PR on every merge to main.
+  release-pr:
+    name: release-pr
+    if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') }}
     runs-on: ubuntu-latest
-    outputs:
-      release_created: ${{ steps.rp.outputs.release_created }}
-      tag_name: ${{ steps.rp.outputs.tag_name }}
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
-      - uses: actions/create-github-app-token@v1
-        id: app-token
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-      - id: rp
-        uses: googleapis/release-please-action@v4
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-```
-
-### Why a GitHub App token?
-
-The default `GITHUB_TOKEN` cannot trigger other workflows. Using a GitHub App
-token ensures that when release-please creates a tag, the downstream build
-and publish workflows actually run.
-
-Use a dedicated GitHub App with only the permissions it needs. Keep its
-private key in a protected release environment, restrict who may approve that
-environment, and record the release approver. Prefer OIDC for cloud publishing
-where the target registry supports it; never expose publish credentials to
-pull-request workflows.
-
-## Cross-platform binary builds
-
-After the release is created, build binaries for every target platform:
-
-```yaml
-build:
-  name: build (${{ matrix.target }})
-  needs: release-please
-  if: ${{ needs.release-please.outputs.release_created == 'true' }}
-  runs-on: ${{ matrix.runner }}
-  strategy:
-    fail-fast: false
-    matrix:
-      include:
-        - runner: ubuntu-22.04
-          target: x86_64-unknown-linux-gnu
-          archive_ext: tar.gz
-        - runner: ubuntu-22.04-arm
-          target: aarch64-unknown-linux-gnu
-          archive_ext: tar.gz
-        - runner: macos-14
-          target: aarch64-apple-darwin
-          archive_ext: tar.gz
-        - runner: windows-latest
-          target: x86_64-pc-windows-msvc
-          archive_ext: zip
-```
-
-### Embedding the dependency tree with `cargo-auditable`
-
-Use [`cargo-auditable`](https://github.com/rust-secure-code/cargo-auditable)
-to embed the resolved dependency tree into the compiled binary:
-
-```bash
-cargo auditable build --release --locked --target ${{ matrix.target }}
-```
-
-This enables tools like `cargo audit` to scan the binary for known
-vulnerabilities without access to the source code or `Cargo.lock`.
-
-### Syncing the lockfile
-
-After release-please bumps the version in `Cargo.toml`, the `Cargo.lock` file
-still records the old version. Sync it before building:
-
-```bash
-cargo update --workspace
-```
-
-This updates only the workspace crate's version in the lockfile, leaving
-every dependency pinned as committed.
-
-## Publishing to crates.io
-
-```yaml
-publish-crate:
-  name: cargo publish
-  needs: [release-please, build]
-  if: ${{ needs.release-please.outputs.release_created == 'true' }}
-  runs-on: ubuntu-latest
-  steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@v1
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Sync lockfile to bumped version
-        run: cargo update --workspace
-      - name: Publish to crates.io
+      - uses: actions/create-github-app-token@f418cffdfd93fef6b8c199859f5f0b5d0bf93c4b # v3.4.0
+        id: app-token
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      - name: Update Release PR
+        uses: release-plz/action@v0.5 # Pin to full commit SHA of latest v0.5.x release
+        with:
+          command: release-pr
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish --locked
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+  # Publishes to crates.io via OIDC and creates the Git tag/GitHub Release
+  # when a Release PR is merged to main.
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    environment: release
+    outputs:
+      releases_created: ${{ steps.rp.outputs.releases_created }}
+      releases: ${{ steps.rp.outputs.releases }}
+    permissions:
+      contents: write
+      id-token: write # Required for crates.io OIDC Trusted Publishing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+      - uses: actions/create-github-app-token@f418cffdfd93fef6b8c199859f5f0b5d0bf93c4b # v3.4.0
+        id: app-token
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      - name: Release crates and tag
+        id: rp
+        uses: release-plz/action@v0.5 # Pin to full commit SHA of latest v0.5.x release
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          # Do NOT set CARGO_REGISTRY_TOKEN — release-plz uses OIDC automatically.
 ```
 
-### The `CARGO_REGISTRY_TOKEN` secret
+### Why use a dedicated GitHub App token?
 
-Set this in the GitHub repository's secrets settings. The token is generated
-on crates.io and must have publish permission for the crate.
+Commits, PRs, and tags created with the default `GITHUB_TOKEN` do not trigger
+CI checks on the Release PR or downstream tag workflows. Minting a short-lived
+installation token via `actions/create-github-app-token@v3` from a minimally
+scoped GitHub App ensures the Release PR runs full CI before merge and any
+tag-triggered jobs fire reliably.
 
-## Packaging release artifacts
+## Cross-platform binary builds and `cargo-auditable`
 
-```bash
-# Unix
-VERSION="${TAG_NAME#v}"
-STAGE="my-crate-${VERSION}-${TARGET}"
-mkdir -p "$STAGE"
-cp "target/$TARGET/release/my-crate" "$STAGE/"
-cp README.md LICENSE-MIT LICENSE-APACHE "$STAGE/"
-tar -czf "${STAGE}.tar.gz" "$STAGE"
-
-# Windows
-$VERSION = "${env:TAG_NAME}".TrimStart("v")
-$STAGE = "my-crate-$VERSION-$TARGET"
-New-Item -ItemType Directory -Path $STAGE | Out-Null
-Copy-Item "target/$TARGET/release/my-crate.exe" -Destination $STAGE
-Copy-Item README.md,LICENSE-MIT,LICENSE-APACHE -Destination $STAGE
-Compress-Archive -Path $STAGE -DestinationPath "$STAGE.zip"
-```
-
-## Checksums, SBOM, and provenance
-
-A release is not complete when it is uploaded. Publish the evidence users
-need to verify what they downloaded:
-
-```bash
-# Generate a deterministic checksum manifest for every release asset.
-sha256sum my-crate-*.tar.gz my-crate-*.zip > SHA256SUMS
-
-# Produce a CycloneDX SBOM for the release workspace/feature set.
-cargo cyclonedx --format json --describe binaries
-```
-
-Generate the SBOM in the release build, upload it with the artifacts, and
-state which target and Cargo features it describes. `cargo-cyclonedx` can use
-Cargo metadata as well as the lockfile and can omit development dependencies,
-which makes it more useful than a lockfile-only report for a shipped binary.
-
-For GitHub-hosted releases, generate an artifact attestation after building
-each binary. It cryptographically binds the artifact digest to the repository,
-commit, and workflow identity. This is provenance—not a guarantee that the
-artifact has no vulnerability.
+When shipping precompiled CLI or service binaries alongside crates.io releases,
+build on current native GitHub-hosted runners (`ubuntu-24.04`,
+`ubuntu-24.04-arm`, `macos-15`, `windows-latest` — note `macos-14` is retired):
 
 ```yaml
-permissions:
-  contents: read
-  id-token: write
-  attestations: write
-
-# Pin the action to a reviewed full commit SHA in a real workflow.
-- name: Attest release artifact
-  uses: actions/attest-build-provenance@v2
-  with:
-    subject-path: dist/my-crate-*
+  build-binaries:
+    name: build (${{ matrix.target }})
+    needs: release
+    if: ${{ needs.release.outputs.releases_created == 'true' }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            archive_ext: tar.gz
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            archive_ext: tar.gz
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            archive_ext: tar.gz
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive_ext: zip
 ```
 
-Tell users how to verify the provenance and checksum, including the expected
-repository owner and release workflow:
+*(Tip: If you also want generated shell installers, PowerShell installers,
+Homebrew formulas, or MSI packages out of the box, pair `release-plz` with
+[`cargo-dist`](https://opensource.axo.dev/cargo-dist/).)*
+
+### Embedding the dependency graph with `cargo-auditable`
+
+Compile every shipped binary with [`cargo-auditable`](https://github.com/rust-secure-code/cargo-auditable):
+
+```bash
+cargo auditable build --release --locked --target "${{ matrix.target }}"
+```
+
+`cargo-auditable` embeds a compressed dependency manifest into a dedicated
+binary section (`dep-v0`), enabling `cargo audit bin`, Trivy, Grype, and
+OSV-Scanner to audit deployed executables directly without source code or
+`Cargo.lock`.
+
+## Packaging, checksums, SBOMs, and SLSA provenance
+
+Archive each binary alongside `README.md`, `LICENSE-MIT`, and `LICENSE-APACHE`,
+then publish verification artifacts that satisfy enterprise and government
+consumers:
+
+```bash
+# 1. Deterministic SHA-256 checksum manifest across all release archives
+sha256sum my-crate-*.tar.gz my-crate-*.zip > SHA256SUMS
+
+# 2. Source-time CycloneDX SBOM scoped to shipped binary targets (omits dev-deps)
+cargo cyclonedx --format json --describe binaries
+
+# (Optional) SPDX 2.3 JSON SBOM for multi-crate workspaces
+cargo sbom --output-format spdx_json_2_3 > my-crate.spdx.json
+```
+
+### Meeting CISA's 2026 Minimum Elements for an SBOM
+
+Under **CISA's July 2026 Minimum Elements for a Software Bill of Materials**,
+consumers expect machine-readable SBOMs to include **component hashes**,
+**component licenses**, **SBOM tool metadata**, **transitive coverage**, and
+**generation context**. Generate SBOMs from the exact `--locked` release tree,
+state the target triple and Cargo feature set in release notes, and attach both
+the SBOM and `SHA256SUMS` to the GitHub Release.
+
+### Cryptographic build provenance attestations
+
+Bind every release archive and SBOM to your repository, commit SHA, and release
+workflow identity using `actions/attest-build-provenance@v4`:
+
+```yaml
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/my-crate-*
+```
+
+Document the exact verification commands for adopters in `README.md` or release
+notes:
 
 ```bash
 sha256sum --check SHA256SUMS
-gh attestation verify ./my-crate --owner YOUR_ORGANIZATION \
+gh attestation verify ./my-crate-0.2.0-x86_64-unknown-linux-gnu.tar.gz \
+  --owner YOUR_ORGANIZATION \
   --signer-workflow YOUR_ORGANIZATION/YOUR_REPOSITORY/.github/workflows/release.yml
 ```
 
-The exact GitHub attestation action/version evolves; use the current official
-GitHub guidance, pin the selected action by full SHA, and test the verification
-command before documenting it as a release guarantee.
-
 ## Further reading
 
+- [release-plz documentation](https://release-plz.dev/)
+- [crates.io Trusted Publishing (OIDC) guide](https://crates.io/docs/trusted-publishing)
 - [Conventional Commits specification](https://www.conventionalcommits.org)
-- [release-please documentation](https://github.com/googleapis/release-please)
 - [cargo-auditable documentation](https://github.com/rust-secure-code/cargo-auditable)
-- [crates.io publishing guide](https://doc.rust-lang.org/cargo/reference/publishing.html)
-- [cargo-cyclonedx documentation](https://docs.rs/cargo-cyclonedx/)
-- [GitHub artifact attestations](https://docs.github.com/en/actions/concepts/security/artifact-attestations)
-- [GitHub: verify attestations from a reusable workflow](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/increase-security-rating)
+- [cargo-cyclonedx](https://github.com/CycloneDX/cyclonedx-rust-cargo) & [cargo-sbom](https://crates.io/crates/cargo-sbom)
+- [CISA Software Bill of Materials (SBOM) resources](https://www.cisa.gov/sbom)
+- [GitHub Artifact Attestations](https://docs.github.com/en/actions/concepts/security/artifact-attestations)
