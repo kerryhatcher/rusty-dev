@@ -10,7 +10,7 @@ a developer's laptop.
 ## Rust-native release automation with `release-plz`
 
 [`release-plz`](https://release-plz.dev/) is the Rust-native release automation
-tool built specifically around Cargo workspaces, [Conventional Commits](https://www.conventionalcommits.org),
+tool built specifically around Cargo workspaces, [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/),
 and [`cargo-semver-checks`](https://github.com/obi1kenobi/cargo-semver-checks).
 
 Unlike generic language-agnostic release bots, `release-plz`:
@@ -36,7 +36,72 @@ Unlike generic language-agnostic release bots, `release-plz`:
 | `feat!:` / `BREAKING CHANGE:` (or API break caught by `cargo-semver-checks`) | Major (`x.0.0`, or minor on `0.x`) | `feat!: require structured Error return` |
 
 Non-user-facing prefixes (`docs:`, `chore:`, `ci:`, `refactor:`, `test:`) do not
-trigger a release on their own.
+trigger a release on their own. The full grammar (types, optional `(scope)`,
+`!`, and `BREAKING CHANGE:` footers) is defined by the
+[Conventional Commits 1.0.0 specification](https://www.conventionalcommits.org/en/v1.0.0/#specification).
+
+### Enforcing the convention
+
+Version bumps and changelog entries are only as accurate as the commit messages
+`release-plz` reads, so the convention has to be enforced, not just documented.
+The simplest reliable setup has three parts:
+
+1. **Squash-merge only, using the PR title as the commit message.** Then every
+   commit on `main` is exactly one PR title, and the title is the only message
+   to check. Contributors can write whatever they like on their branches.
+
+   ```bash
+   gh api -X PATCH repos/OWNER/REPO \
+     -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false \
+     -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY
+   ```
+
+2. **Check the PR title in CI.** This workflow uses no third-party actions and
+   no token permissions:
+
+   ```yaml
+   # .github/workflows/pr-title.yml
+   name: PR title
+
+   on:
+     pull_request:
+       # `edited` re-runs the check when the title changes; `synchronize` keeps
+       # the required check attached to the latest commit.
+       types: [opened, edited, reopened, synchronize]
+
+   permissions: {}
+
+   jobs:
+     pr-title:
+       name: pr-title
+       runs-on: ubuntu-latest
+       steps:
+         - name: Check PR title follows Conventional Commits
+           env:
+             # Pass the title through an environment variable, never inline
+             # `${{ }}` in the script, so a crafted title cannot inject shell.
+             TITLE: ${{ github.event.pull_request.title }}
+           run: |
+             pattern='^(feat|fix|docs|chore|ci|refactor|test)(\([a-z0-9._/-]+\))?!?: [^[:space:]].*$'
+             if [[ ! "$TITLE" =~ $pattern ]]; then
+               echo "::error title=PR title is not a Conventional Commit::Use '<type>[(scope)][!]: <description>', e.g. 'feat(cli): add --json output'. See https://www.conventionalcommits.org/en/v1.0.0/"
+               exit 1
+             fi
+   ```
+
+   Make `pr-title` a required status check in the branch ruleset (see
+   [Project governance](governance.md#branch-and-tag-protection-with-github-rulesets)).
+
+3. **Make bot PRs conform too.** `release-plz` titles its Release PRs
+   `chore: release …`, which already passes. Configure Dependabot's
+   `commit-message` so its PRs do as well (see
+   [Dependency management](dependencies.md#dependabot-with-grouping-and-cooldowns)).
+
+Keep the type list in the pattern in sync with the one in `CONTRIBUTING.md` and
+`AGENTS.md`. If you allow merge commits or rebase merges, every commit on the
+branch lands on `main`, and you need a per-commit check (for example
+[`commitlint`](https://commitlint.js.org/) or
+[`cocogitto`](https://docs.cocogitto.io/)) instead of a title check.
 
 ### Configuration (`release-plz.toml`)
 
@@ -296,7 +361,7 @@ gh attestation verify ./my-crate-0.2.0-x86_64-unknown-linux-gnu.tar.gz \
 
 - [release-plz documentation](https://release-plz.dev/)
 - [crates.io Trusted Publishing (OIDC) guide](https://crates.io/docs/trusted-publishing)
-- [Conventional Commits specification](https://www.conventionalcommits.org)
+- [Conventional Commits 1.0.0 specification](https://www.conventionalcommits.org/en/v1.0.0/)
 - [cargo-auditable documentation](https://github.com/rust-secure-code/cargo-auditable)
 - [cargo-cyclonedx](https://github.com/CycloneDX/cyclonedx-rust-cargo) & [cargo-sbom](https://crates.io/crates/cargo-sbom)
 - [CISA Software Bill of Materials (SBOM) resources](https://www.cisa.gov/sbom)
