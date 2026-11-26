@@ -47,12 +47,11 @@ Mark every breaking change with `!` in the commit header (`feat!:`,
 `refactor(api)!:`), even though the specification also allows a
 `BREAKING CHANGE:` footer alone. The `release_commits` pattern below is
 anchored to the header, and with squash merges the footer never reaches `main`
-anyway. `cargo-semver-checks` runs only when `release-plz` prepares a Release
-PR, so a breaking change in a filtered-out commit (`refactor:` with only a
-footer) opens no Release PR by itself. It is picked up, and bumped as major,
-only when the next `feat` or `fix` triggers one. The CI
-[`semver` job](ci-cd.md#semver--public-api-compatibility-libraries) still flags
-the API break on the PR itself, which is the place to catch a missing `!`.
+anyway, so a footer-only breaking change can be released as a minor or patch
+bump. A `!` in the header is the only marker this setup preserves. The CI
+[`semver` job](ci-cd.md#semver--public-api-compatibility-libraries) catches many
+library API breaks on the PR itself, but not all of them, and not behavioral or
+CLI breaks in binaries, so reviewers should check for a missing `!`.
 
 The full grammar (types, optional `(scope)`, `!`, and `BREAKING CHANGE:`
 footers) is defined by the
