@@ -36,8 +36,13 @@ Unlike generic language-agnostic release bots, `release-plz`:
 | `feat!:` / `BREAKING CHANGE:` (or API break caught by `cargo-semver-checks`) | Major (`x.0.0`, or minor on `0.x`) | `feat!: require structured Error return` |
 
 Non-user-facing prefixes (`docs:`, `chore:`, `ci:`, `refactor:`, `test:`) do not
-trigger a release on their own. The full grammar (types, optional `(scope)`,
-`!`, and `BREAKING CHANGE:` footers) is defined by the
+trigger a release on their own, **provided** `release-plz.toml` sets
+`release_commits` (see [Configuration](#configuration-release-plztoml)). Without
+that filter, `release-plz` updates a package on every commit and opens a Release
+PR with a patch bump. Those commits still appear in the changelog. To ship a
+dependency fix on its own (for example a security patch in a binary's
+`Cargo.lock`), title the PR `fix(deps): …`. The full grammar (types, optional
+`(scope)`, `!`, and `BREAKING CHANGE:` footers) is defined by the
 [Conventional Commits 1.0.0 specification](https://www.conventionalcommits.org/en/v1.0.0/#specification).
 
 ### Enforcing the convention
@@ -46,15 +51,28 @@ Version bumps and changelog entries are only as accurate as the commit messages
 `release-plz` reads, so the convention has to be enforced, not just documented.
 The simplest reliable setup has three parts:
 
-1. **Squash-merge only, using the PR title as the commit message.** Then every
-   commit on `main` is exactly one PR title, and the title is the only message
-   to check. Contributors can write whatever they like on their branches.
+1. **Squash-merge only, using the PR title as the whole commit message.** Then
+   every commit on `main` is exactly one PR title, and the title is the only
+   message to check. Contributors can write whatever they like on their
+   branches.
 
    ```bash
    gh api -X PATCH repos/OWNER/REPO \
      -F allow_squash_merge=true -F allow_merge_commit=false -F allow_rebase_merge=false \
-     -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY
+     -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=BLANK
    ```
+
+   `BLANK` keeps the PR description out of the commit. A description that
+   mentions `[skip ci]` would otherwise copy that marker onto `main` and make
+   GitHub skip every push-triggered workflow for that commit, including the
+   release workflow. It also means breaking changes must be marked with `!` in
+   the title (`feat!: …`), because a `BREAKING CHANGE:` footer in the PR
+   description never reaches the commit.
+
+   These settings only choose the *default* message: whoever merges can still
+   edit it in the merge dialog. Treat the merge dialog as part of review. On
+   GitHub Enterprise Cloud, a ruleset **commit message pattern** restriction can
+   also enforce the format on `main` itself.
 
 2. **Check the PR title in CI.** This workflow uses no third-party actions and
    no token permissions:
@@ -68,6 +86,9 @@ The simplest reliable setup has three parts:
        # `edited` re-runs the check when the title changes; `synchronize` keeps
        # the required check attached to the latest commit.
        types: [opened, edited, reopened, synchronize]
+     # Required checks must also report on merge queue runs. The title was
+     # already validated on the PR, so the job passes without a check there.
+     merge_group:
 
    permissions: {}
 
@@ -77,14 +98,23 @@ The simplest reliable setup has three parts:
        runs-on: ubuntu-latest
        steps:
          - name: Check PR title follows Conventional Commits
+           if: github.event_name == 'pull_request'
            env:
              # Pass the title through an environment variable, never inline
              # `${{ }}` in the script, so a crafted title cannot inject shell.
              TITLE: ${{ github.event.pull_request.title }}
            run: |
-             pattern='^(feat|fix|docs|chore|ci|refactor|test)(\([a-z0-9._/-]+\))?!?: [^[:space:]].*$'
+             spec='See https://www.conventionalcommits.org/en/v1.0.0/'
+             pattern='^(feat|fix|docs|chore|ci|refactor|test)(\([A-Za-z0-9._/-]+\))?!?: [^[:space:]].*$'
              if [[ ! "$TITLE" =~ $pattern ]]; then
-               echo "::error title=PR title is not a Conventional Commit::Use '<type>[(scope)][!]: <description>', e.g. 'feat(cli): add --json output'. See https://www.conventionalcommits.org/en/v1.0.0/"
+               echo "::error title=PR title is not a Conventional Commit::Use '<type>[(scope)][!]: <description>', e.g. 'feat(cli): add --json output'. $spec"
+               exit 1
+             fi
+             # The title becomes the commit on main; a skip marker there would
+             # stop CI and the release workflow from running for that commit.
+             skip='\[(skip ci|ci skip|no ci|skip actions|actions skip)\]'
+             if [[ "${TITLE,,}" =~ $skip ]]; then
+               echo "::error title=PR title contains a workflow skip marker::Remove it; it would skip CI and releases on main."
                exit 1
              fi
    ```
@@ -93,7 +123,8 @@ The simplest reliable setup has three parts:
    [Project governance](governance.md#branch-and-tag-protection-with-github-rulesets)).
 
 3. **Make bot PRs conform too.** `release-plz` titles its Release PRs
-   `chore: release …`, which already passes. Configure Dependabot's
+   `chore: release v…` (or `chore(<package>): release v…` when one package in
+   a workspace is released), which already passes. Configure Dependabot's
    `commit-message` so its PRs do as well (see
    [Dependency management](dependencies.md#dependabot-with-grouping-and-cooldowns)).
 
@@ -113,6 +144,9 @@ dependencies_update = false     # Dependabot owns external dependency updates
 git_release_enable = true       # Create GitHub Release when tag is published
 git_release_draft = true        # Keep draft until binary/SBOM assets are uploaded (for immutable releases)
 pr_labels = ["release"]
+# Only features, fixes, and breaking changes (`type!:`) open a Release PR;
+# other commits still reach the changelog.
+release_commits = "^((feat|fix)[(!:]|[a-z]+(\\([^)]*\\))?!:)"
 semver_check = true             # Run cargo-semver-checks when computing bumps
 
 [[package]]

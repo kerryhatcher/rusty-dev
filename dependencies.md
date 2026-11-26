@@ -20,7 +20,7 @@ updates:
     schedule:
       interval: "weekly"
     commit-message:
-      prefix: "chore" # PR title "chore(deps): bump …" (no release on its own)
+      prefix: "chore" # "chore(deps): bump …"; no release with `release_commits`
       include: "scope"
     cooldown:
       default-days: 7
