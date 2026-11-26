@@ -1,20 +1,23 @@
 # CI/CD Pipeline
 
-A production Rust CI pipeline runs every quality gate on every commit, across
-multiple operating systems, and fails fast on the first error.
+A production Rust CI pipeline enforces every quality, compatibility, and
+security gate on every change, runs across target operating systems, constrains
+runner permissions to read-only by default, and pins third-party GitHub Actions
+by immutable commit SHA.
 
 ## Design principles
 
-1. **Separate jobs for separate concerns** — test, lint, MSRV, security, and
-   vet each get their own job. A lint failure should not block the test suite
-   from running.
-2. **Matrix builds for cross-platform testing** — run tests on Linux, macOS,
-   and Windows. Rust code that works on one platform may fail on another
-   (path separators, line endings, environment variables).
-3. **Fail fast within a job** — each job stops at the first failure. The
-   developer gets immediate feedback on what broke.
-4. **Cache aggressively** — `Swatinem/rust-cache` caches the `target/`
-   directory and `~/.cargo/` between runs, cutting CI time by 50-80%.
+1. **Separate jobs for separate concerns** — test, lint/doc, SemVer, MSRV,
+   security, and supply-chain vetting run in parallel jobs so a formatting
+   error never hides a Windows test regression or advisory alert.
+2. **Cross-platform test matrix** — execute tests on Linux, macOS, and Windows
+   to catch path-separator, newline, filesystem-locking, and environment bugs.
+3. **Cancel superseded PR runs** — use `concurrency` to cancel stale PR jobs on
+   new pushes while never cancelling `main` branch runs.
+4. **Cache deterministically** — `Swatinem/rust-cache` caches `~/.cargo` and
+   relevant `target/` artifacts, cutting CI wall-clock time by 50–80%.
+5. **Audit the workflow itself** — scan `.github/workflows/` with `zizmor` so
+   template injections, over-scoped tokens, or unpinned actions cannot land.
 
 ## The CI workflow
 
@@ -25,12 +28,19 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Weekly scan catches newly published advisories on quiet repositories.
+    - cron: "0 6 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always
 
-# Default every job to read-only. Add narrowly scoped write permissions only
-# to the release/provenance job that needs them.
+# Default every job to read-only. Grant narrowly scoped write/OIDC permissions
+# only inside dedicated release/attestation jobs on protected refs.
 permissions:
   contents: read
 
@@ -43,153 +53,206 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2.90.11
         with:
-          tool: just
-      - run: cargo test --locked
+          tool: cargo-nextest
+      - run: cargo nextest run --all-features --locked
+      # Omit `cargo test --doc` if the package has no library target (`src/lib.rs`).
+      - run: cargo test --doc --all-features --locked
 
   lint:
-    name: lint
+    name: lint & doc
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: just
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo clippy --all-targets --all-features --locked -- -D warnings
+      - name: Check rustdoc and intra-doc links
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --all-features --locked
 
-  msrv:
-    name: msrv (1.85.1)
+  semver:
+    name: semver
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          toolchain: "1.85.1"
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
-          tool: just
-      - run: cargo test --locked
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2.90.11
+        with:
+          tool: cargo-semver-checks
+      - run: cargo semver-checks --locked
+
+  msrv:
+    name: msrv (1.96)
+    runs-on: ubuntu-latest
+    env:
+      # Override any committed `rust-toolchain.toml` so cargo uses 1.96.
+      RUSTUP_TOOLCHAIN: "1.96"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: "1.96"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo test --all-features --locked
 
   security:
     name: security
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2.90.11
         with:
           tool: just,cargo-audit,cargo-deny,cargo-geiger
       - run: cargo audit
       - run: cargo deny check
-      - uses: aquasecurity/trivy-action@v0.36.0
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: "v0.76.2"
           scan-type: fs
           scanners: vuln,secret
           exit-code: "1"
           skip-dirs: target
+      - uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          advanced-security: false
       - run: just geiger
 
   vet:
     name: vet
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2.90.11
         with:
-          tool: just,cargo-vet
-      - run: just vet
+          tool: cargo-vet
+      - run: cargo vet --locked
 ```
 
 ## Job breakdown
 
-### `test` — cross-platform test suite
+### `test` — cross-platform nextest + doctests
 
-- Runs on **Linux, macOS, and Windows**.
-- `fail-fast: false` — a failure on one OS does not cancel the others.
-  Windows failures are often environment-specific and worth seeing.
-- Runs `just test` (`cargo test`).
+- Runs on **Linux, macOS, and Windows** with `fail-fast: false` so OS-specific
+  failures on Windows or macOS are visible in full.
+- Uses `cargo nextest run --all-features --locked` for isolated, parallel binary
+  tests plus `cargo test --doc --all-features --locked` for documentation examples.
 
-### `lint` — formatting and clippy
+### `lint` — formatting, clippy, and rustdoc
 
-- Runs on Ubuntu only (formatting and clippy are platform-independent).
-- Installs `rustfmt` and `clippy` components explicitly.
-- Runs `just fmt` then `just lint`.
+- Runs `cargo fmt --check`, `cargo clippy --all-targets --all-features --locked -- -D warnings`,
+  and `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features --locked`.
+
+### `semver` — public API compatibility (libraries)
+
+- Uses `cargo-semver-checks` to prevent accidental breaking API changes from
+  merging without an intentional major bump. (Binary-only repositories without
+  a published library target can omit this job.)
 
 ### `msrv` — MSRV enforcement
 
-- Pins the exact toolchain from `Cargo.toml`'s `rust-version`.
-- Runs the full test suite, not just `cargo check`.
-- Catches dependency bumps that silently raise the effective MSRV.
+- Pins the exact `rust-version` from `Cargo.toml` (`"1.96"`) and executes the
+  full test suite with `--locked`.
 
-### `security` — vulnerability and supply-chain scanning
+### `security` — advisories, licenses, secrets, workflow linting, and `unsafe`
 
-- Runs `cargo audit` (RustSec advisory database).
-- Runs `cargo deny check` (licenses, bans, sources).
-- Runs Trivy (filesystem vulns and secrets).
-- Runs `cargo geiger` (informational, never fails the build).
+- Runs `cargo audit` and `cargo deny check`.
+- Runs SHA-pinned Trivy filesystem scanning (`vuln,secret`).
+- Runs `zizmor` static security analysis against `.github/workflows/`.
+- Runs `just geiger` (informational `unsafe` trend report).
 
-### `vet` — supply-chain trust
+### `vet` — locked supply-chain trust verification
 
-- Runs `cargo vet check` (audit policy enforcement).
-- Separate from the security job because it has different tooling and
-  different failure modes.
+- Runs `cargo vet --locked` so CI verifies against the committed
+  `supply-chain/imports.lock` rather than fetching unreviewed external state
+  over the network.
 
-## Pinning action versions
+## Pinning action versions and auditing workflows
 
-Pin every GitHub Action to a specific commit SHA, with a comment noting the
-semver tag:
+Pin **every** GitHub Action—first-party and third-party alike—to a full 40-char
+commit SHA with a trailing version comment:
 
 ```yaml
-- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.2.0
-- uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-- uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-- uses: taiki-e/install-action@7572810d7dd469b651bb7793945692cf78da5dd7 # v2.85.0
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+- uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
 ```
 
-This prevents a compromised action release from injecting malicious code into
-your CI pipeline. Dependabot will open PRs to update the pinned SHAs.
+Mutable tags (`@v1`, `@v0.36.0`) can be retroactively repointed if an upstream
+action repository is compromised. In March 2026, an attacker rewrote 75+ tags
+of `aquasecurity/trivy-action` and `setup-trivy` to credential-stealing payloads
+(`CVE-2026-33634` / `GHSA-69fq-xp46-6x23`)—workflows referencing mutable tags
+executed the payload, whereas SHA-pinned workflows were unaffected.
 
-Also enable the repository or organization policy that requires full-length
-SHA pins, restricts allowed third-party actions/reusable workflows, and make
-workflow permissions explicit. A workflow triggered by an untrusted fork must
-not receive secrets or a write-capable token; release/publishing workflows
-must only run from protected refs and environments.
+Always resolve a tag to its commit SHA yourself rather than copying SHAs blindly
+from documentation:
+
+```bash
+gh api repos/actions/checkout/commits/v7.0.1 --jq .sha
+```
+
+Additional workflow hardening rules:
+
+- **Enable GitHub's Actions SHA-pinning policy** at the repository or
+  organization level, and restrict allowed third-party actions and reusable
+  workflows.
+- **Set `persist-credentials: false` on `actions/checkout`** unless a later step
+  in that job genuinely pushes commits (`zizmor` flags omitted
+  `persist-credentials: false` under its `artipacked` rule).
+- **Verify Node 24 runtime support** on pinned actions—GitHub removed Node 20
+  from hosted runners in September 2026, so legacy `node20` actions fail.
+- **Block untrusted fork access to secrets/write tokens** (`actions/checkout@v7`
+  also blocks unsafe fork checkouts on `pull_request_target` triggers).
 
 ## Evidence retention and scheduled checks
 
-PR checks prevent regressions introduced by a change, but a dependency may be
-disclosed as vulnerable on an otherwise quiet project. Add scheduled runs for
-RustSec/license checks and record alert triage. Retain release-job logs,
-checksums, SBOMs, provenance/signatures, and test reports for the length of
-the support period or contractual retention requirement. Treat CI artifacts as
-potentially sensitive: redact logs and avoid uploading secrets, production
-data, or full core dumps.
+PR checks only run when code changes; the weekly `schedule` trigger ensures newly
+published RustSec advisories fail visibly even on quiet repositories. (Because a
+brand-new upstream advisory can fail every open PR simultaneously, some teams
+split advisory scanning into a dedicated daily scheduled workflow rather than a
+required PR check; either way, record alert triage.) Retain release-job logs,
+checksums, SBOMs, provenance attestations, and test reports for your support or
+contractual retention window, and avoid uploading sensitive logs or raw memory
+dumps as public artifacts.
 
 ## Further reading
 
-- [GitHub Actions documentation](https://docs.github.com/en/actions)
-- [dtolnay/rust-toolchain](https://github.com/dtolnay/rust-toolchain)
+- [GitHub Actions secure use reference](https://docs.github.com/en/actions/reference/security/secure-use)
+- [zizmor: static security analysis for GitHub Actions](https://docs.zizmor.sh/)
+- [cargo-nextest in CI](https://nexte.st/docs/ci-features/)
+- [cargo-semver-checks](https://github.com/obi1kenobi/cargo-semver-checks)
 - [Swatinem/rust-cache](https://github.com/Swatinem/rust-cache)
 - [taiki-e/install-action](https://github.com/taiki-e/install-action)
-- [GitHub Actions secure use reference](https://docs.github.com/en/actions/reference/security/secure-use)
-- [GitHub action pinning policy](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository)

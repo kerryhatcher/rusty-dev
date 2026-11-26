@@ -1,7 +1,8 @@
 # Code Quality Gates
 
-Every line of Rust code should pass through automated quality gates before
-it reaches a pull request. These gates run locally via `just` and in CI.
+Every line of Rust code should pass through automated quality gates before it
+reaches `main`. These gates run identically on a developer's laptop via `just`
+and in CI with `--locked`.
 
 ## Formatting: `rustfmt`
 
@@ -13,57 +14,108 @@ cargo fmt --check
 cargo fmt
 ```
 
-CI runs `cargo fmt --check` and fails if any file is unformatted. Developers
-run `cargo fmt` (or configure their editor to format on save) before pushing.
+With `edition = "2024"` in `Cargo.toml`, `rustfmt` automatically applies the
+2024 style edition (improved sorting and expression formatting; set
+`style_edition` in `rustfmt.toml` only if holding formatting steady during an
+edition migration). Pinning the toolchain in `rust-toolchain.toml` (see
+[Project Scaffolding](scaffolding.md#toolchain-pinning-rust-toolchaintoml))
+keeps local and CI `rustfmt` output identical. CI runs `cargo fmt --check` and
+fails if any file is unformatted; developers format on save or run `just fmt-fix`
+before pushing.
 
-## Linting: `clippy`
+## Linting: `clippy` and `rustc`
 
 ```bash
-# Run clippy on all targets (bin, lib, tests, examples)
-cargo clippy --all-targets -- -D warnings
+# Run clippy across all targets (lib, bins, tests, benches, examples) and features
+cargo clippy --all-targets --all-features --locked -- -D warnings
 ```
 
-The `-D warnings` flag turns every clippy warning into a hard error. Combined
-with the `[lints.clippy]` configuration in `Cargo.toml`:
+The `-D warnings` flag promotes every warning to a hard compile error, enforcing
+the `[lints]` policy declared in `Cargo.toml`:
 
 ```toml
+[lints.rust]
+unsafe_code = "forbid"
+unused_crate_dependencies = "warn"
+
 [lints.clippy]
-all = "warn"
-pedantic = "warn"
-nursery = "warn"
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+dbg_macro = "warn"
+todo = "warn"
+undocumented_unsafe_blocks = "warn"
 ```
 
-This means:
+### What each tier enforces
 
-- **`all`** — every stable lint that is on by default.
-- **`pedantic`** — opinionated lints that catch subtle bugs and enforce
-  idiomatic code. Some may need `#[allow(...)]` with a comment.
-- **`nursery`** — new lints still in development. They catch emerging best
-  practices before they become stable.
+- **`[lints.rust]`** — compiler-level guarantees (`unsafe_code = "forbid"` and
+  `unused_crate_dependencies = "warn"`).
+- **`clippy::all` + `clippy::pedantic` (`priority = -1`)** — stable bug,
+  correctness, performance, and idiomatic-Rust checks. Setting `priority = -1`
+  allows project-wide overrides of specific pedantic lints at priority `0` if
+  needed.
+- **Targeted `restriction` lints** — surgical policies (`allow_attributes`,
+  `allow_attributes_without_reason`, `dbg_macro`, `todo`,
+  `undocumented_unsafe_blocks`) without enabling experimental `nursery` lints
+  that can introduce false-positive CI failures on routine Rust releases.
 
-### Suppression discipline
+### Suppression discipline with `#[expect]`
 
-When a lint is genuinely wrong for a specific piece of code, suppress it
-narrowly (on the expression or function, not the module) with a comment:
+Never silence a lint with an undocumented `#[allow(...)]`. Use Rust 1.81+'s
+`#[expect(..., reason = "...")]` narrowly on the expression or item:
 
 ```rust
-// Safe: clamp(0.0, 100.0) guarantees the value fits in u8 with no
-// truncation or sign loss.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-{
-    used.clamp(0.0, 100.0) as u8
-}
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "clamp(0.0, 100.0) guarantees the value fits in u8 without truncation or sign loss"
+)]
+let pct = used.clamp(0.0, 100.0) as u8;
 ```
 
-Never suppress a lint without explaining why. If you cannot write a
-convincing comment, the lint is probably right.
+This gives you two compiler-enforced guarantees:
+
+1. **Mandatory justification** — omitting `reason = "..."` fails
+   `clippy::allow_attributes_without_reason`.
+2. **Self-cleaning suppressions** — if a refactor later removes the cast or
+   changes types so the lint no longer triggers, `rustc` warns via
+   `unfulfilled_lint_expectations` so stale suppressions never linger.
+
+## Documentation & SemVer gates
+
+### Broken doc-link and rustdoc validation
+
+```bash
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features --locked
+```
+
+Catches broken `[intra-doc links]`, invalid HTML/Markdown in doc comments, and
+missing crate-level documentation warnings before docs.rs tries to build a
+release.
+
+### API compatibility: `cargo-semver-checks`
+
+For published libraries, run [`cargo-semver-checks`](https://github.com/obi1kenobi/cargo-semver-checks)
+to statically compare your current `rustdoc` JSON against the latest crates.io
+release and catch accidental breaking changes (such as removing a public item,
+tightening trait bounds, or dropping an auto-trait like `Send` or `Sync`):
+
+```bash
+cargo semver-checks --locked
+```
 
 ## The `justfile`
 
-A `justfile` provides a single entry point for every quality gate. Developers
-run `just ci` to reproduce exactly what CI runs:
+A `justfile` gives local developers and CI a single, self-documenting command
+surface:
 
 ```makefile
+# List available recipes by default.
+default:
+    @just --list
+
 # Check formatting without modifying files.
 fmt:
     cargo fmt --check
@@ -72,43 +124,52 @@ fmt:
 fmt-fix:
     cargo fmt
 
-# Lint, treating warnings as errors.
+# Lint all targets and features, treating warnings as errors.
 lint:
-    cargo clippy --all-targets -- -D warnings
+    cargo clippy --all-targets --all-features --locked -- -D warnings
 
-# Run the test suite.
+# Verify rustdoc builds cleanly with no broken intra-doc links.
+doc:
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features --locked
+
+# Run the test suite (nextest + doctests; omit `cargo test --doc` if the crate has no `src/lib.rs`).
 test:
-    cargo test
+    cargo nextest run --locked
+    cargo test --doc --locked
 
 # Run every check. Fails fast on the first failing recipe.
-ci: fmt lint test audit msrv deny trivy vet geiger
+ci: fmt lint doc test audit msrv deny trivy zizmor vet geiger
 ```
-
-### Why `just` instead of `make` or shell scripts?
-
-- **Self-documenting** — `just` lists every recipe with its comment.
-- **Cross-platform** — works on Linux, macOS, and Windows.
-- **No shell escaping surprises** — each recipe is a single command.
-- **Fail-fast by default** — `just ci` stops at the first failure.
 
 ## What the gates protect
 
 | Gate | Command | What it protects |
 |------|---------|------------------|
-| `just fmt` | `cargo fmt --check` | Consistent formatting |
-| `just lint` | `cargo clippy --all-targets -- -D warnings` | Bugs, style, idiomatic code |
-| `just test` | `cargo test` | Correctness |
-| `just audit` | `cargo audit` | Known advisories in dependencies |
-| `just msrv` | `cargo msrv verify` | MSRV drift from dependency bumps |
-| `just deny` | `cargo deny check` | Licenses, banned crates, duplicates |
-| `just trivy` | `trivy fs --scanners vuln,secret` | Filesystem vulns and secrets |
-| `just vet` | `cargo vet check` | Supply-chain trust policy |
-| `just geiger` | `cargo geiger` | Unsafe usage (informational) |
+| `just fmt` | `cargo fmt --check` | Consistent 2024-edition formatting |
+| `just lint` | `cargo clippy --all-targets --all-features --locked -- -D warnings` | Correctness, style, documented `#[expect]` reasons |
+| `just doc` | `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features --locked` | Valid API docs and intra-doc links |
+| `just test` | `cargo nextest run --locked && cargo test --doc --locked` | Functional correctness and executable doc examples |
+| `just audit` | `cargo audit` | Known RustSec advisories in `Cargo.lock` |
+| `just msrv` | `cargo msrv verify` | Compatibility with declared `rust-version` |
+| `just deny` | `cargo deny check` | Licenses, banned crates, duplicates, sources |
+| `just trivy` | `trivy fs --scanners vuln,secret --exit-code 1 --skip-dirs target .` | Filesystem vulnerabilities and leaked secrets |
+| `just zizmor` | `zizmor .github/workflows` | GitHub Actions workflow security flaws |
+| `just vet` | `cargo vet --locked` | Supply-chain audit and exemption policy |
+| `just geiger` | `-cargo geiger` | Unsafe usage metrics (informational) |
 
 ## Installing the tools
 
+Use [`cargo-binstall`](https://github.com/cargo-bins/cargo-binstall) locally to
+install verified prebuilt binaries in seconds rather than compiling every tool
+from source:
+
 ```bash
-cargo install just cargo-audit cargo-msrv cargo-deny cargo-vet cargo-geiger
+# Install cargo-binstall once, then fetch prebuilt CLI binaries rapidly:
+cargo install cargo-binstall --locked
+cargo binstall -y just cargo-nextest cargo-semver-checks cargo-audit cargo-msrv cargo-deny cargo-vet zizmor cargo-geiger
+
+# Or compile from source (always pass --locked so tools build with tested deps):
+cargo install --locked just cargo-nextest cargo-semver-checks cargo-audit cargo-msrv cargo-deny cargo-vet zizmor cargo-geiger
 # trivy: https://trivy.dev/latest/getting-started/installation/
 ```
 
@@ -116,4 +177,6 @@ cargo install just cargo-audit cargo-msrv cargo-deny cargo-vet cargo-geiger
 
 - [rustfmt documentation](https://github.com/rust-lang/rustfmt)
 - [Clippy documentation](https://doc.rust-lang.org/clippy/)
+- [Rustc lint expectations (`#[expect]`)](https://doc.rust-lang.org/rustc/lints/levels.html#expecting-a-lint)
+- [cargo-semver-checks](https://github.com/obi1kenobi/cargo-semver-checks)
 - [just documentation](https://just.systems/man/en/)
