@@ -93,7 +93,7 @@ certification claim.
 
 ## Source documents
 
-- [NIST SP 800-218 SSDF](https://doi.org/10.6028/NIST.SP.800-218)
+- [NIST SP 800-218 SSDF](https://doi.org/10.6028/NIST.SP.800-218) (v1.1; [v1.2 draft](https://csrc.nist.gov/pubs/sp/800/218/r1/ipd))
 - [CISA Secure by Design](https://www.cisa.gov/securebydesign)
 - [Rust Fuzz Book](https://rust-fuzz.github.io/book/)
 - [The Rustonomicon: Unsafe Rust](https://doc.rust-lang.org/nomicon/)

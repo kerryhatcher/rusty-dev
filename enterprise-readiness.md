@@ -97,46 +97,46 @@ verification and incident response much faster.
 
 ## Start new / retrofit existing
 
-{% stepper %}
+Work through these steps in order.
 
-### Inventory and assign owners
+### 1. Inventory and assign owners
 
 List binaries, libraries, container images, publish locations, supported
 platforms, maintainers, secrets, CI workflows, dependencies, and users who
 consume releases. Name a release owner and a security-response owner.
 
-### Close the public-trust gaps
+### 2. Close the public-trust gaps
 
 Add accurate licensing, `SECURITY.md`, support window, contribution rules,
 CODEOWNERS, changelog, and an issue/decision process. Do not promise SLAs the
 project cannot meet.
 
-### Lock down the path to main and release
+### 3. Lock down the path to main and release
 
 Turn on rulesets, required checks, least-privilege workflow permissions, SHA
-pinned actions, secret scanning, and dependency updates. Use a separate,
-protected release environment for credentials.
+pinned actions (enforced by the Actions SHA-pinning policy), secret scanning
+with push protection, immutable releases, and dependency updates. Use a
+separate, protected release environment, and crates.io Trusted Publishing
+instead of long-lived registry tokens.
 
-### Make the build repeatable and observable
+### 4. Make the build repeatable and observable
 
-Commit the application lockfile; use `--locked` in CI and release builds; pin
-the Rust toolchain; run the documented checks locally and in CI. Generate an
+Commit `Cargo.lock` (for libraries too); use `--locked` in CI and release
+builds; pin the Rust toolchain in `rust-toolchain.toml`; run the documented checks locally and in CI. Generate an
 SBOM and checksums from the exact release build.
 
-### Introduce supply-chain and security controls gradually
+### 5. Introduce supply-chain and security controls gradually
 
 Begin with `cargo audit`/`cargo deny`, then establish `cargo vet` policy and
 document time-bounded exemptions with owners and rationale. Add threat models,
 fuzzing/property tests, provenance, and reproducibility work in priority order
 from the project threat model.
 
-### Operate and improve
+### 6. Operate and improve
 
 Practice an advisory release, review access and dependency exceptions on a
 cadence, publish deprecations early, and perform a blameless post-incident
 review that changes code, controls, or documentation.
-
-{% endstepper %}
 
 ## Procurement and compliance posture
 
@@ -146,18 +146,34 @@ security contact, and mappings from controls to customer frameworks. For US
 federal use, the producer attestation expectations derive from the SSDF and
 OMB software supply-chain guidance; a project should obtain legal and
 compliance review before claiming eligibility or submitting an attestation.
+NIST has published a draft SSDF 1.2 (SP 800-218 Rev. 1, December 2025); track
+it, but map to the final 1.1 until 1.2 is final.
+
+For products placed on the EU market, the **Cyber Resilience Act** applies.
+Manufacturers' obligations to report actively exploited vulnerabilities and
+severe incidents started on 11 September 2026, and the full requirements
+apply from 11 December 2027. Non-monetized open-source projects are largely
+out of scope, but foundations and companies that act as "open-source software
+stewards" carry lighter obligations, and your commercial adopters will ask
+for the SBOM, vulnerability-handling process, and support period this guide
+already produces.
 
 The [OpenSSF Best Practices Badge](https://www.bestpractices.dev/) and
-[OpenSSF Scorecard](https://securityscorecards.dev/) are useful transparent
+[OpenSSF Scorecard](https://scorecard.dev/) are useful transparent
 signals, but are not substitutes for a customer's risk assessment or an
-applicable government attestation.
+applicable government attestation. The
+[OpenSSF OSPS Baseline](https://baseline.openssf.org/) offers a tiered
+control catalogue that maps well onto the maturity stages above.
 
 ## Source documents
 
 - [NIST SP 800-218 SSDF](https://doi.org/10.6028/NIST.SP.800-218)
 - [CISA Software Acquisition Guide for Government Enterprise Consumers](https://www.cisa.gov/resources-tools/resources/software-acquisition-guide-government-enterprise-consumers)
 - [OpenSSF Best Practices Badge](https://openssf.org/projects/best-practices-badge/)
-- [OpenSSF Scorecard](https://securityscorecards.dev/)
-- [SLSA v1.0 specification](https://slsa.dev/spec/v1.0/)
+- [NIST SP 800-218 Rev. 1 (SSDF 1.2) draft](https://csrc.nist.gov/pubs/sp/800/218/r1/ipd)
+- [OpenSSF Scorecard](https://scorecard.dev/)
+- [OpenSSF OSPS Baseline](https://baseline.openssf.org/)
+- [SLSA v1.2 specification](https://slsa.dev/spec/v1.2/)
+- [EU Cyber Resilience Act (Regulation (EU) 2024/2847)](https://eur-lex.europa.eu/eli/reg/2024/2847/oj)
 - [GitHub rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets)
 - [GitHub Actions secure use reference](https://docs.github.com/en/actions/reference/security/secure-use)

@@ -18,12 +18,12 @@ Software Development Framework (SSDF)](https://doi.org/10.6028/NIST.SP.800-218).
   adopter evidence, ownership, and a retrofit sequence
 - [Secure development lifecycle](secure-development.md) — threat modeling,
   secure defaults, review, testing, incident learning, and SSDF mapping
-- [Project scaffolding](scaffolding.md) — `Cargo.toml` setup, MSRV, edition,
-  lints, `#![forbid(unsafe_code)]`
+- [Project scaffolding](scaffolding.md) — `Cargo.toml` setup, edition 2024,
+  toolchain pinning, `[lints]`, `#[expect]`, forbidding `unsafe`
 - [Code quality gates](code-quality.md) — `rustfmt`, `clippy`, and how to
   configure them
-- [Testing strategy](testing.md) — unit tests, integration tests, property-based
-  testing, and what to test
+- [Testing strategy](testing.md) — unit, integration, snapshot, and
+  property-based tests; nextest, coverage, and mutation testing
 - [Supply chain security](supply-chain.md) — `cargo-deny`, `cargo-vet`,
   `cargo-audit`, and dependency trust
 - [Security scanning](security-scanning.md) — Trivy, `cargo-geiger`, and
@@ -33,10 +33,10 @@ Software Development Framework (SSDF)](https://doi.org/10.6028/NIST.SP.800-218).
 - [CI/CD pipeline](ci-cd.md) — GitHub Actions matrix builds, separate job
   design, and release automation
 - [Release automation](releases.md) — `release-please`, conventional commits,
-  `cargo publish`, and cross-platform binaries
+  crates.io Trusted Publishing, cross-platform binaries, SBOM, and attestations
 - [Dependency management](dependencies.md) — Dependabot, version pinning,
   and dependency hygiene
-- [Local development](local-dev.md) — `justfile`, `CLAUDE.md`,
+- [Local development](local-dev.md) — `justfile`, `AGENTS.md`/`CLAUDE.md`,
   `CONTRIBUTING.md`, and the developer experience
 - [Security policy](security-policy.md) — `SECURITY.md`, private vulnerability
   reporting, and coordinated disclosure
@@ -47,14 +47,17 @@ Software Development Framework (SSDF)](https://doi.org/10.6028/NIST.SP.800-218).
 
 Before asking a risk-conscious organization to run a release, make sure it
 has a supported-version policy, private vulnerability reporting, protected
-default branch, reviewed and reproducible CI inputs, a committed lockfile (for
-applications), dependency/license/advisory policy, a published SBOM, release
-provenance or signatures, checksums, and a documented way to verify them.
+default branch, reviewed and reproducible CI inputs, a committed `Cargo.lock`
+(applications and libraries alike), dependency/license/advisory policy, a
+published SBOM, release provenance or signatures, checksums, and a documented
+way to verify them.
 The enterprise guide explains the evidence each control should produce.
 
 ## Source documents
 
 - [NIST SP 800-218: Secure Software Development Framework](https://doi.org/10.6028/NIST.SP.800-218)
 - [OpenSSF Best Practices Badge](https://openssf.org/projects/best-practices-badge/)
-- [SLSA specification](https://slsa.dev/spec/v1.0/)
+- [SLSA specification v1.2](https://slsa.dev/spec/v1.2/)
+- [OpenSSF Scorecard](https://scorecard.dev/)
+- [crates.io Trusted Publishing](https://crates.io/docs/trusted-publishing)
 - [CISA Software Acquisition Guide for Government Enterprise Consumers](https://www.cisa.gov/resources-tools/resources/software-acquisition-guide-government-enterprise-consumers)

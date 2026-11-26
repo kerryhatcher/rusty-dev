@@ -13,7 +13,8 @@ release builds so the resolved graph is the graph that was reviewed.
 ## `cargo-deny`: license, ban, and duplicate checking
 
 `cargo-deny` checks your dependency tree against a policy file (`deny.toml`).
-It covers four areas:
+It covers four areas. Generate a commented starting file with
+`cargo deny init`, then tighten it:
 
 ### Configuration
 
@@ -27,8 +28,15 @@ no-default-features = false
 [output]
 feature-depth = 1
 
-# `cargo deny check advisories` — RustSec vulnerability/yanked-crate database.
+# `cargo deny check advisories` — RustSec vulnerabilities, unmaintained and
+# unsound crates, and yanked versions.
 [advisories]
+# Only flag unmaintained crates you depend on directly; transitive ones are
+# reported by `cargo audit` and tracked through upstream.
+unmaintained = "workspace"
+yanked = "deny"
+# Each ignore needs an id and a reason, e.g.
+# { id = "RUSTSEC-0000-0000", reason = "not reachable: we never call X" }
 ignore = []
 
 # `cargo deny check licenses` — only these licenses are allowed.
@@ -42,7 +50,10 @@ ignore = false
 # `cargo deny check bans` — duplicate/banned/wildcard-version crates.
 [bans]
 multiple-versions = "warn"
-wildcards = "allow"
+# crates.io rejects wildcard requirements anyway; deny them everywhere except
+# path dependencies between private (unpublished) workspace crates.
+wildcards = "deny"
+allow-wildcard-paths = true
 highlight = "all"
 workspace-default-features = "allow"
 external-default-features = "allow"
@@ -64,7 +75,7 @@ bitbucket = []
 
 | Section | Command | What it catches |
 |---------|---------|-----------------|
-| `[advisories]` | `cargo deny check advisories` | Known vulnerabilities and yanked crates |
+| `[advisories]` | `cargo deny check advisories` | Known vulnerabilities, unmaintained/unsound crates, yanked versions |
 | `[licenses]` | `cargo deny check licenses` | Copyleft or unapproved licenses in the tree |
 | `[bans]` | `cargo deny check bans` | Duplicate versions of the same crate, banned crates |
 | `[sources]` | `cargo deny check sources` | Dependencies from untrusted registries or git repos |
@@ -129,13 +140,23 @@ criteria = "safe-to-run"
 
 ### Workflow
 
-1. **First audit** — when adding a new dependency, run `cargo vet` to see
-   what needs auditing. Add exemptions for crates you have reviewed.
-2. **Update audits** — when a dependency version changes, `cargo vet` checks
-   whether the delta has been audited. If not, you need a new exemption or
-   audit entry.
-3. **Import audits** — Google and Mozilla maintain public audit sets.
-   Importing them covers the most common crates (serde, quote, syn, etc.).
+1. **Bootstrap** — `cargo vet init` creates `supply-chain/` and records an
+   exemption for every existing dependency, so the check passes on day one.
+   Those exemptions are your audit backlog, not a statement that anything was
+   reviewed.
+2. **New dependency** — run `cargo vet` to see what is unvetted. If someone
+   reviews the code, record it with `cargo vet certify` (an audit in
+   `audits.toml`). Only if you knowingly accept the crate *without* review,
+   add an exemption with a reason.
+3. **Version change** — `cargo vet` checks whether the delta has been audited.
+   `cargo vet suggest` lists the smallest diffs you could review, and
+   `cargo vet diff` shows them. Prefer certifying the delta over adding a new
+   exemption.
+4. **Import audits** — Google and Mozilla maintain public audit sets.
+   Importing them covers many common crates (serde, quote, syn, etc.).
+   `cargo vet trust` can also trust a specific publisher of a crate.
+5. **Prune** — run `cargo vet prune` after updates to drop exemptions that
+   audits or imports now cover.
 
 ### Exemption discipline
 
@@ -156,23 +177,33 @@ supply-chain/
 
 ## `cargo-audit`: RustSec advisory database
 
-`cargo-audit` checks your dependency tree against the
+`cargo-audit` checks `Cargo.lock` against the
 [RustSec Advisory Database](https://rustsec.org) — a curated collection of
-known vulnerabilities and yanked crates.
+security advisories for Rust crates.
 
 ```bash
 cargo audit
 ```
 
 This is the fastest check to run and the one most likely to catch something
-actionable. Run it in CI on every commit.
+actionable. It overlaps with `cargo deny check advisories`; running both is
+cheap, but one is enough if you want a single source of truth. Run it in CI
+and on a schedule (see [CI/CD](ci-cd.md#evidence-retention-and-scheduled-checks)),
+because new advisories appear without any change to your code. `cargo audit bin`
+scans a compiled binary built with `cargo auditable`.
 
 ### What it catches
 
-- **Known vulnerabilities** — crates with published CVEs.
-- **Yanked crates** — crates that have been removed from crates.io due to
-  a serious bug or security issue.
-- **Outdated crates** — versions that have a known fix available.
+- **Vulnerabilities** — versions with a RustSec advisory (errors), with the
+  patched version range when one exists.
+- **Unmaintained and unsound crates** — informational advisories (warnings by
+  default; `--deny warnings` makes them fail).
+- **Yanked versions** — versions the author has yanked. Yanked versions stay
+  downloadable for existing lockfiles but should not be used for new
+  resolutions.
+
+It does **not** report merely outdated dependencies; use `cargo outdated` or
+Dependabot for that.
 
 ## Putting it together
 
@@ -183,9 +214,9 @@ jobs:
   security:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit,cargo-deny
@@ -200,14 +231,18 @@ jobs:
   vet:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-vet
       - run: cargo vet check
 ```
+
+Pin these actions by full commit SHA in a real workflow; see
+[CI/CD](ci-cd.md#pinning-action-versions).
 
 ## Further reading
 

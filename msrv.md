@@ -13,8 +13,25 @@ Set `rust-version` in `Cargo.toml`:
 rust-version = "1.85.1"
 ```
 
-This field tells `cargo` (and users) the minimum toolchain version. It is
-also read by `cargo-msrv` and can be checked in CI.
+This field tells `cargo` (and users) the minimum toolchain version. Cargo
+refuses to build the crate on an older toolchain, the MSRV-aware resolver uses
+it to choose dependency versions, and `cargo-msrv` reads it in CI.
+
+## Choosing an MSRV policy
+
+Write the policy down (README or `CONTRIBUTING.md`) so users know what to
+expect. Common choices:
+
+- **Latest stable only** — simplest; suitable for applications you ship as
+  binaries.
+- **Rolling window** — for example "the last N stable releases" or "any
+  toolchain released in the last 6–12 months". Common for libraries.
+- **Fixed floor tied to a platform** — for example the `rustc` shipped by a
+  Linux distribution or an LTS SDK you must support.
+
+The Rust project itself only supports the **latest stable release**. There
+is no LTS channel; fixes ship as point releases of the current stable.
+Your MSRV is therefore a promise *you* make, not one the Rust project backs.
 
 ## Verifying the MSRV
 
@@ -27,16 +44,22 @@ cargo msrv verify
 
 This command:
 
-1. Downloads the exact toolchain specified in `rust-version`.
-2. Runs `cargo check` (or `cargo test` with `--verify-with`).
-3. Fails if the build breaks, indicating a dependency bump has raised the
-   effective MSRV above the declared one.
+1. Installs the toolchain specified in `rust-version`.
+2. Runs `cargo check` against it (use `--` with a custom command, for example
+   `cargo msrv verify -- cargo test`, to run something else).
+3. Fails if the build breaks, indicating a code change or dependency bump has
+   raised the effective MSRV above the declared one.
+
+`cargo msrv find` bisects toolchains to discover the actual MSRV when you do
+not know it. [`cargo-hack`](https://github.com/taiki-e/cargo-hack) offers a
+lighter alternative: `cargo hack check --rust-version` checks against the
+declared `rust-version`.
 
 ### In the justfile
 
-```makefile
+```just
 # Verify the crate still builds on its declared MSRV (Cargo.toml's
-# rust-version), catching drift from dependency bumps.
+# rust-version), catching drift from code or dependency changes.
 msrv:
     cargo msrv verify
 ```
@@ -44,8 +67,7 @@ msrv:
 ## Enforcing in CI
 
 CI runs the full test suite against the pinned MSRV toolchain, not just
-`cargo check`. This catches runtime behaviour differences between toolchain
-versions:
+`cargo check`. This catches behaviour differences between toolchain versions:
 
 ```yaml
 jobs:
@@ -53,16 +75,18 @@ jobs:
     name: msrv (1.85.1)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.85.1"
       - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: just
-      - run: just test
+      - run: cargo test --locked
 ```
+
+Pin actions by full commit SHA in a real workflow; see
+[CI/CD](ci-cd.md#pinning-action-versions).
 
 ### Why run the full test suite instead of just `cargo check`?
 
@@ -73,37 +97,66 @@ jobs:
 
 ## Preventing MSRV drift
 
-### Version-pin dependencies that sit near the MSRV floor
+### Use the MSRV-aware resolver
 
-When a dependency's MSRV is close to your own, pin the upper bound:
+Since Cargo 1.84, the resolver can prefer dependency versions whose own
+`rust-version` is compatible with yours. It is the default for
+`edition = "2024"` (which implies `resolver = "3"`). For older editions,
+opt in with either:
 
 ```toml
-# Pinned below 1.2: toml 1.1.3 declares rust-version 1.85, one patch under
-# our 1.85.1 MSRV. An unbounded range lets `cargo update` break `just msrv`
-# with no code change to attribute it to.
-toml = { version = ">=1.1, <1.2" }
+# Cargo.toml (requires an MSRV of at least 1.84)
+[package]
+resolver = "3"
+```
+
+```toml
+# .cargo/config.toml (works with any MSRV, as long as developers use Cargo ≥ 1.84)
+[resolver]
+incompatible-rust-versions = "fallback"
+```
+
+With this enabled, `cargo update` and `cargo add` stop picking releases that
+would raise your effective MSRV, so you no longer need upper-bound version
+pins just to protect it. The resolver only considers dependencies that
+declare `rust-version`; a dependency without one can still break the MSRV
+job, which is why CI keeps the guard.
+
+### Pin only when the resolver cannot help
+
+If a dependency raises its MSRV without declaring it, or in a release the
+resolver would otherwise select, pin the upper bound and record the reason
+next to the pin:
+
+```toml
+# some-crate 2.4 uses let-chains but does not declare rust-version;
+# remove this pin once our MSRV reaches 1.88.
+some-crate = { version = ">=2.3, <2.4" }
 ```
 
 ### Review dependency MSRVs before updating
 
-Before running `cargo update`, check whether the new version of each
-dependency raises its MSRV. Tools like `cargo-msrv` and
-[cargo-info](https://github.com/rust-lang/cargo) can help.
+Before accepting an update, check the new version's declared `rust-version`:
+`cargo info <crate>` (built into Cargo since 1.82) prints it, and the MSRV CI
+job verifies the result.
 
 ## When to raise the MSRV
 
-- A dependency you need has raised its MSRV and you cannot pin the old
-  version.
-- A language feature stabilized in a newer toolchain would significantly
-  improve the code.
-- The old toolchain is no longer supported by the Rust project (each stable
-  release is supported for 6 weeks after the next stable release).
+- A dependency you need has raised its MSRV and the older version is no
+  longer acceptable (for example, it is unmaintained or has an advisory).
+- A language or standard-library feature stabilized in a newer toolchain
+  would significantly improve the code.
+- The toolchain has fallen outside your published MSRV policy window.
 
 When you raise the MSRV, do it in a dedicated commit or PR so the change is
-visible in the changelog and release notes.
+visible in the changelog and release notes. For libraries, many projects
+treat an MSRV bump as a minor (not patch) version change.
 
 ## Further reading
 
+- [The Cargo Book: `rust-version`](https://doc.rust-lang.org/cargo/reference/rust-version.html)
+- [The Cargo Book: resolver and `incompatible-rust-versions`](https://doc.rust-lang.org/cargo/reference/resolver.html#rust-version)
+- [Rust 1.84.0 release notes (MSRV-aware resolver)](https://blog.rust-lang.org/2025/01/09/Rust-1.84.0/)
 - [cargo-msrv documentation](https://github.com/foresterre/cargo-msrv)
 - [dtolnay/rust-toolchain action](https://github.com/dtolnay/rust-toolchain)
-- [Rust platform support](https://doc.rust-lang.org/nightly/rustc/platform-support.html)
+- [Rust platform support](https://doc.rust-lang.org/rustc/platform-support.html)

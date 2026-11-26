@@ -7,10 +7,13 @@ with minimal friction.
 ## The `justfile`
 
 A `justfile` is the single entry point for every development task. Developers
-run `just` to see available recipes and `just ci` to run everything:
+run `just` to see available recipes and `just ci` to run everything. CI calls
+the same recipes, so a green `just ci` locally predicts a green CI run:
 
-```makefile
+```just
 # Run `just` with no args to list recipes, or `just ci` to run all checks.
+default:
+    @just --list
 
 # Check formatting without modifying files.
 fmt:
@@ -22,11 +25,15 @@ fmt-fix:
 
 # Lint, treating warnings as errors.
 lint:
-    cargo clippy --all-targets -- -D warnings
+    cargo clippy --all-targets --locked -- -D warnings
+
+# Build docs, treating rustdoc warnings as errors.
+doc:
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --locked
 
 # Run the test suite.
 test:
-    cargo test
+    cargo test --locked
 
 # Check dependencies against the RustSec advisory database.
 audit:
@@ -36,7 +43,7 @@ audit:
 msrv:
     cargo msrv verify
 
-# Check licenses, banned crates, duplicate versions, and dependency sources.
+# Check advisories, licenses, banned crates, duplicate versions, and sources.
 deny:
     cargo deny check
 
@@ -48,53 +55,58 @@ trivy:
 vet:
     cargo vet check
 
-# Report unsafe-code usage (informational).
+# Report unsafe-code usage (informational; the leading `-` ignores failure).
 geiger:
     -cargo geiger
 
-# Run every check. Fails fast on the first failing recipe.
-ci: fmt lint test audit msrv deny trivy vet geiger
+# Run every check. Stops at the first failing recipe.
+ci: fmt lint doc test audit msrv deny trivy vet geiger
 ```
 
 ### Why `just`?
 
-- **Self-documenting** — `just` lists every recipe with its comment.
+- **Self-documenting** — `just --list` shows every recipe with its comment.
 - **Cross-platform** — works on Linux, macOS, and Windows.
-- **Fail-fast** — `just ci` stops at the first failure.
-- **Simple** — each recipe is a single shell command.
+- **Stops on failure** — `just ci` stops at the first failing dependency.
+- **Simple** — a command runner with no build-system semantics to learn.
 
-## The `CLAUDE.md` file
+## Pin the toolchain
 
-A `CLAUDE.md` file provides guidance to AI coding assistants (Claude Code,
-Cursor, etc.) about the project's conventions and invariants:
+Commit a `rust-toolchain.toml` (see
+[scaffolding](scaffolding.md#toolchain-pinning)) so `rustup` installs the
+same compiler, `rustfmt`, and `clippy` for everyone on first `cargo` run.
+
+## Agent instruction files (`AGENTS.md` / `CLAUDE.md`)
+
+AI coding assistants read a project instruction file for conventions and
+invariants. `AGENTS.md` is the cross-tool convention read by many agents;
+Claude Code reads `CLAUDE.md` (which can simply import `@AGENTS.md`). Keep it
+short, factual, and specific to the repository. It is guidance for the tool,
+not an enforcement mechanism; CI is still the gate.
 
 ```markdown
-# CLAUDE.md
-
-This file provides guidance to Claude Code when working with code in this
-repository.
+# AGENTS.md
 
 ## Checks
 
-Run `just ci` before claiming a change is done — it chains fmt, lint, test,
-audit, msrv, deny, trivy, vet, and geiger, failing fast. `just fmt` is
-`cargo fmt --check` (verify only); use `just fmt-fix` to actually reformat.
+Run `just ci` before claiming a change is done — it chains fmt, lint, doc,
+test, audit, msrv, deny, trivy, vet, and geiger, stopping at the first
+failure. `just fmt` is `cargo fmt --check` (verify only); use `just fmt-fix`
+to reformat.
 
 ## Invariants
 
-- **Never panic on input.** Partial or wrong-typed JSON must degrade to a
-  shorter statusline; stdin that is not JSON, or is empty, must print nothing
-  and exit 0.
+- **Never panic on input.** Malformed or unexpected input returns an error
+  (or degrades to a documented fallback); it never panics.
 - **MSRV is 1.85.1** (`rust-version` in Cargo.toml, pinned in CI). Do not use
-  stdlib APIs stabilized after it, and do not raise it casually.
+  standard-library APIs stabilized after it, and do not raise it casually.
 - **Keep the dependency tree small.** Every new dependency needs a
-  justification and a `cargo vet` entry.
+  justification and a `cargo vet` audit or recorded exemption.
 
 ## Code standards
 
 - Clippy `pedantic` and `nursery` are enabled and CI runs `-D warnings`.
-  When a lint is genuinely wrong, `#[allow(...)]` it with a comment explaining
-  why.
+  When a lint is genuinely wrong, use `#[expect(lint, reason = "...")]`.
 - Unit tests live in a `mod tests` block beside the code; integration tests
   live in `tests/`. A bug fix ships with the test that would have caught it.
 
@@ -128,11 +140,12 @@ A good `CONTRIBUTING.md` answers every question a new contributor might have:
 | Recipe | Command | What it protects |
 |--------|---------|------------------|
 | `just fmt` | `cargo fmt --check` | Formatting, unmodified |
-| `just lint` | `cargo clippy --all-targets -- -D warnings` | Lints — pedantic and nursery |
-| `just test` | `cargo test` | The test suite |
+| `just lint` | `cargo clippy --all-targets --locked -- -D warnings` | Lints — pedantic and nursery |
+| `just doc` | `cargo doc` with `-D warnings` | Doc comments and intra-doc links |
+| `just test` | `cargo test --locked` | The test suite |
 | `just audit` | `cargo audit` | Known advisories in the dependency tree |
-| `just msrv` | `cargo msrv verify` | MSRV drift from dependency bumps |
-| `just deny` | `cargo deny check` | Licenses, banned crates, duplicates |
+| `just msrv` | `cargo msrv verify` | MSRV drift from code or dependency changes |
+| `just deny` | `cargo deny check` | Advisories, licenses, banned crates, duplicates, sources |
 | `just trivy` | `trivy fs` | Vulnerabilities and hardcoded secrets |
 | `just vet` | `cargo vet check` | Supply-chain trust policy |
 | `just geiger` | `cargo geiger` | Unsafe usage — informational |
@@ -140,16 +153,20 @@ A good `CONTRIBUTING.md` answers every question a new contributor might have:
 ### Tool installation
 
 ```bash
-cargo install just cargo-audit cargo-msrv cargo-deny cargo-vet cargo-geiger
+# Prebuilt binaries (fast):
+cargo binstall just cargo-audit cargo-msrv cargo-deny cargo-vet cargo-geiger
+
+# Or from source — always with --locked:
+cargo install --locked just cargo-audit cargo-msrv cargo-deny cargo-vet cargo-geiger
+
 # trivy: https://trivy.dev/latest/getting-started/installation/
 ```
 
 ## The `.gitignore` file
 
 ```gitignore
-# Generated by Cargo
-debug
-target
+# Generated by Cargo (`cargo new` ignores only /target; commit Cargo.lock)
+/target
 
 # rustfmt backups
 **/*.rs.bk
@@ -160,12 +177,13 @@ target
 # Mutation testing
 **/mutants.out*/
 
-# Personal settings (not committed)
+# Personal agent settings (not committed)
 .claude/settings.local.json
 ```
 
 ## Further reading
 
 - [just documentation](https://just.systems/man/en/)
-- [Claude Code documentation](https://docs.claude.com/en/docs/claude-code/overview)
+- [AGENTS.md](https://agents.md/)
+- [Claude Code documentation: memory and `CLAUDE.md`](https://code.claude.com/docs/en/memory)
 - [GitHub: CONTRIBUTING.md best practices](https://docs.github.com/en/communities/setting-up-your-project-for-healthy-contributions/setting-guidelines-for-repository-contributors)

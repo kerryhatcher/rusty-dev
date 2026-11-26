@@ -100,8 +100,12 @@ GitHub's [private vulnerability reporting](https://docs.github.com/en/code-secur
 feature lets researchers report vulnerabilities directly through the GitHub
 UI. Enable it in your repository's settings:
 
-1. Go to **Settings → Security & analysis → Private vulnerability reporting**.
-2. Click **Enable**.
+1. Go to the repository's **Settings → Advanced Security** page (named
+   "Code security and analysis" on older GitHub plans and GHES versions).
+2. Find **Private vulnerability reporting** and click **Enable**.
+
+Organization owners can enable it for all repositories at once from the
+organization's security settings.
 
 This is the preferred reporting channel because it keeps the report, the fix
 discussion, and the advisory in one place.

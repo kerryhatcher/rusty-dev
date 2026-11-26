@@ -28,6 +28,25 @@ trivy fs --scanners vuln,secret --exit-code 1 --skip-dirs target .
 - `--skip-dirs target` — the `target/` directory is build artifacts, not
   source code. Scanning it is slow and produces noise.
 
+For Rust dependencies, Trivy reads `Cargo.lock` and overlaps with
+`cargo audit`/`cargo deny`. Its distinct value is secret scanning and
+coverage of non-Rust files (container images, `package-lock.json`, etc.).
+A dedicated secret scanner such as GitHub secret scanning with push
+protection, or `gitleaks`, is a reasonable alternative.
+
+### Treat the scanner as a dependency too
+
+In March 2026 attackers used stolen credentials to publish a malicious Trivy
+release (v0.69.4) and rewrite almost every tag of `aquasecurity/trivy-action`
+and `setup-trivy` to credential-stealing code (CVE-2026-33634). Pipelines
+that referenced those tags leaked the secrets available to the runner.
+Security tools run with the same access as everything else in CI:
+
+- Pin the action by full commit SHA and verify the SHA against the upstream
+  release before adopting it.
+- Pin the Trivy binary version (`version:` input) rather than `latest`.
+- Run scanners in jobs that hold no secrets and have a read-only token.
+
 ### When to run
 
 - **CI** — on every commit, as part of the security job.
@@ -80,8 +99,11 @@ If your crate does not need `unsafe`, add this at the crate root:
 #![forbid(unsafe_code)]
 ```
 
+(or `unsafe_code = "forbid"` under `[lints.rust]` in `Cargo.toml`; see
+[scaffolding](scaffolding.md#forbidding-unsafe-code)).
+
 This is a **compile-time guarantee** that no `unsafe` block exists anywhere
-in your crate. Combined with `cargo-geiger`, you can see exactly which
+in your crate's own source. Combined with `cargo-geiger`, you can see exactly which
 dependencies introduce `unsafe` and make informed decisions about whether
 to accept that risk.
 
@@ -94,21 +116,22 @@ jobs:
   security:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit,cargo-deny,cargo-geiger
       - run: cargo audit
       - run: cargo deny check
-      - uses: aquasecurity/trivy-action@v0.36.0
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scanners: vuln,secret
           exit-code: "1"
           skip-dirs: target
-      - run: cargo geiger  # informational, never fails the build
+      - run: cargo geiger || true  # informational, never fails the build
 ```
 
 ## Further reading
@@ -116,3 +139,4 @@ jobs:
 - [Trivy documentation](https://trivy.dev)
 - [cargo-geiger documentation](https://github.com/geiger-rs/cargo-geiger)
 - [Aqua Security Trivy GitHub Action](https://github.com/marketplace/actions/aquasecurity-trivy)
+- [Aqua: Trivy supply chain attack](https://www.aquasec.com/blog/trivy-supply-chain-attack/) / [GHSA-69fq-xp46-6x23](https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23)

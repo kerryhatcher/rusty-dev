@@ -35,7 +35,11 @@ project is resourced to provide one.
 
 A `CODE_OF_CONDUCT.md` establishes the behavioural norms for the project
 community. The [Contributor Covenant](https://www.contributor-covenant.org)
-is the most widely adopted template in open source.
+is the most widely adopted template in open source. Version 3.0 (July 2025)
+is a rewrite with plainer language and a restorative "Addressing and
+Repairing Harm" section in place of the old enforcement guidelines; new
+projects should start from 3.0, and projects on 2.1 can upgrade when they
+next review their policy.
 
 ### What it covers
 
@@ -44,13 +48,15 @@ is the most widely adopted template in open source.
 - **Enforcement responsibilities** — who enforces the code of conduct and how.
 - **Scope** — where the code of conduct applies (project spaces, public spaces
   when representing the project).
-- **Enforcement** — the process for reporting incidents and the consequences
-  of violations.
+- **Enforcement / addressing harm** — the process for reporting incidents and
+  how the project responds (3.0 frames this around repairing harm).
 
 ### Key points
 
-- Use the standard Contributor Covenant template. Customizing it introduces
-  ambiguity.
+- Start from the standard template rather than writing your own. Version 3.0
+  is designed to be filled in (reporting channel, enforcement procedure) with
+  its online builder; keep changes to those designated sections so the text
+  stays recognizable.
 - Include a contact method for reporting violations (email or private channel).
 - Apply it equally to maintainers and contributors.
 
@@ -114,10 +120,11 @@ should answer every question they might have.
   `tests/cli.rs`. A bug fix should come with the test that would have caught
   it.
 - **Clippy is not advisory.** `pedantic` and `nursery` are on. If a lint is
-  genuinely wrong for a piece of code, `#[allow(...)]` it with a comment
-  explaining why.
+  genuinely wrong for a piece of code, suppress it with
+  `#[expect(lint, reason = "...")]` so the reason is recorded and the
+  suppression is flagged once it is no longer needed.
 - **Keep the dependency tree tiny.** A PR adding a new dependency needs to
-  argue for it, and will also need a `cargo vet` entry.
+  argue for it, and will also need a `cargo vet` audit or a recorded exemption.
 - **Never panic on input.** Invalid input must degrade gracefully, not crash.
 ```
 
