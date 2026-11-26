@@ -15,9 +15,13 @@ cargo fmt
 ```
 
 With `edition = "2024"` in `Cargo.toml`, `rustfmt` automatically applies the
-2024 style edition (improved sorting and expression formatting). CI runs
-`cargo fmt --check` and fails if any file is unformatted; developers format on
-save or run `just fmt-fix` before pushing.
+2024 style edition (improved sorting and expression formatting; set
+`style_edition` in `rustfmt.toml` only if holding formatting steady during an
+edition migration). Pinning the toolchain in `rust-toolchain.toml` (see
+[Project Scaffolding](scaffolding.md#toolchain-pinning-rust-toolchaintoml))
+keeps local and CI `rustfmt` output identical. CI runs `cargo fmt --check` and
+fails if any file is unformatted; developers format on save or run `just fmt-fix`
+before pushing.
 
 ## Linting: `clippy` and `rustc`
 
@@ -128,7 +132,7 @@ lint:
 doc:
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features --locked
 
-# Run the test suite (nextest + doctests).
+# Run the test suite (nextest + doctests; omit `cargo test --doc` if the crate has no `src/lib.rs`).
 test:
     cargo nextest run --locked
     cargo test --doc --locked
@@ -163,6 +167,9 @@ from source:
 # Install cargo-binstall once, then fetch prebuilt CLI binaries rapidly:
 cargo install cargo-binstall --locked
 cargo binstall -y just cargo-nextest cargo-semver-checks cargo-audit cargo-msrv cargo-deny cargo-vet zizmor cargo-geiger
+
+# Or compile from source (always pass --locked so tools build with tested deps):
+cargo install --locked just cargo-nextest cargo-semver-checks cargo-audit cargo-msrv cargo-deny cargo-vet zizmor cargo-geiger
 # trivy: https://trivy.dev/latest/getting-started/installation/
 ```
 

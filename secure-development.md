@@ -104,7 +104,7 @@ Vulnerabilities (**RV**):
 
 ## Source documents
 
-- [NIST SP 800-218: Secure Software Development Framework (SSDF v1.1)](https://doi.org/10.6028/NIST.SP.800-218) & [SP 800-218A](https://doi.org/10.6028/NIST.SP.800-218A)
+- [NIST SP 800-218: Secure Software Development Framework (SSDF v1.1)](https://doi.org/10.6028/NIST.SP.800-218), [SP 800-218 Rev. 1 (SSDF v1.2 draft)](https://csrc.nist.gov/pubs/sp/800/218/r1/ipd), & [SP 800-218A](https://doi.org/10.6028/NIST.SP.800-218A)
 - [ANSSI Secure Rust Guidelines](https://anssi-fr.github.io/rust-guide/)
 - [CISA Secure by Design](https://www.cisa.gov/securebydesign)
 - [Rust Fuzz Book](https://rust-fuzz.github.io/book/)

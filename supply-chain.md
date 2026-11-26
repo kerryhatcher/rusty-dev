@@ -61,6 +61,7 @@ ignore = false
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+allow-wildcard-paths = true # Permit path-only intra-workspace private deps
 highlight = "all"
 deny = [
     { crate = "openssl-sys", use-instead = "rustls" },
@@ -136,12 +137,17 @@ notes = "Reviewed by @owner on 2026-11-01; revisit by 2027-02-01 (#42)"
 
 ### Workflow and `--locked` discipline
 
-1. **Inspect deltas before certifying** — when updating a crate, run
-   `cargo vet diff <crate> <old> <new>` to audit only the changed lines, then
-   record the review with `cargo vet certify`.
-2. **Keep exemptions time-bounded** — record an owner, rationale, and review
-   date in `notes`. Prefer differential audits over rolling exemptions forward.
-3. **Always run `cargo vet --locked` in CI** — without `--locked`, `cargo-vet`
+1. **Bootstrap (`cargo vet init`)** — creates `supply-chain/` and populates
+   baseline exemptions for existing dependencies. Treat initial exemptions as an
+   audit backlog, not proof of review.
+2. **Audit new crates & deltas** — run `cargo vet suggest` to prioritize small
+   reviews, inspect changes with `cargo vet diff <crate> <old> <new>`, and
+   record human reviews with `cargo vet certify` (or trust a known publisher via
+   `cargo vet trust`). Reserve `exemptions` strictly for unreviewed risk
+   acceptances with an owner, rationale, and review date in `notes`.
+3. **Prune stale exemptions** — run `cargo vet prune` after updates to remove
+   exemptions now covered by first-party or imported audits.
+4. **Always run `cargo vet --locked` in CI** — without `--locked`, `cargo-vet`
    can fetch live remote `audits.toml` files at build time instead of verifying
    strictly against your reviewed `supply-chain/imports.lock`.
 
@@ -167,8 +173,18 @@ cargo audit bin target/release/my-crate
 ```
 
 While `cargo-deny check advisories` and `cargo-audit` both consult RustSec for
-`Cargo.lock`, `cargo-audit` provides fast standalone CLI triage and post-build
-binary inspection via `cargo-auditable`.
+`Cargo.lock`, their failure policies and capabilities differ:
+
+- **Exit-code behavior:** With the `deny.toml` above, `cargo deny check advisories`
+  fails on vulnerabilities, `unsound` crates, yanked crates, and workspace-direct
+  `unmaintained` dependencies. Plain `cargo audit` fails on vulnerabilities,
+  treats `unmaintained` and `unsound` advisories as warnings (unless `--deny warnings`
+  is passed), and **does not** flag merely outdated crates.
+- **Yanked versions:** Yanked crate versions are *not* deleted from crates.io
+  (existing lockfiles can still fetch them), but yanking signals a severe defect
+  or regression that new resolutions reject and CI should block.
+- **Binary scanning:** `cargo audit bin` inspects compiled artifacts built with
+  `cargo-auditable` even after source and lockfiles are gone.
 
 ## Putting it together in CI
 
@@ -179,13 +195,17 @@ Run `cargo-audit` and `cargo-deny` in the `security` job, and run
 jobs:
   security:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-      - uses: taiki-e/install-action@75a7c0f8cb8b77ef2757283626db49f6920f75a7 # v2.90.6
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2.90.11
         with:
           tool: cargo-audit,cargo-deny
       - run: cargo audit
@@ -193,13 +213,17 @@ jobs:
 
   vet:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-      - uses: taiki-e/install-action@75a7c0f8cb8b77ef2757283626db49f6920f75a7 # v2.90.6
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2.90.11
         with:
           tool: cargo-vet
       - run: cargo vet --locked

@@ -27,10 +27,30 @@ exclude = ["docs/", "assets/", ".github/", "justfile"]
 |-------|---------|
 | `edition` | Use `"2024"` (stabilized in Rust 1.85). Enables Cargo Resolver v3 (MSRV-aware dependency resolution), `rustfmt` 2024 style defaults, `unsafe_op_in_unsafe_fn` warnings, `unsafe extern` blocks, and `#[unsafe(...)]` attributes. |
 | `rust-version` | The **minimum supported Rust version** (MSRV). Declare a deliberate rolling floor (e.g., N-4 / ~6 months behind current stable `1.100`, such as `"1.96"`) so Cargo's resolver and CI enforce it. See [MSRV Management](msrv.md). |
-| `license` | Use `"MIT OR Apache-2.0"` — the standard dual-license in the Rust ecosystem. See [licensing](#licensing). |
-| `repository` | Link to the source. Required for `cargo publish` and crates.io provenance links. |
+| `license` | Use `"MIT OR Apache-2.0"` — the standard dual-license in the Rust ecosystem. Required (along with `description`) for `cargo publish`. See [licensing](#licensing). |
+| `repository` | Link to the source. `cargo publish` warns if none of `repository`, `homepage`, or `documentation` is set, and crates.io provenance links expect it. |
 | `keywords` / `categories` | Help people discover the crate on crates.io (up to 5 each). Keep them accurate. |
-| `exclude` | Repo-only files to omit from the published `.crate` tarball. Keeps downloads small and reviewable. |
+| `exclude` | Repo-only files to omit from the published `.crate` tarball. Inspect the final file list with `cargo package --list`. |
+
+## Toolchain pinning (`rust-toolchain.toml`)
+
+While `rust-version` declares the *oldest* compiler your crate supports (MSRV),
+pinning a day-to-day toolchain in `rust-toolchain.toml` ensures every developer
+and CI job runs the exact same `rustc`, `rustfmt`, and `clippy` release:
+
+```toml
+# rust-toolchain.toml
+[toolchain]
+channel = "1.100.0"
+components = ["rustfmt", "clippy"]
+```
+
+Bump `channel` deliberately on new Rust releases (Dependabot does not update
+`rust-toolchain.toml`, though Renovate can). In your CI MSRV job, set
+`RUSTUP_TOOLCHAIN` explicitly (see [MSRV Management](msrv.md#enforcing-msrv-in-ci))
+so `rust-toolchain.toml` does not silently override the older MSRV compiler.
+If you prefer floating with latest stable automatically, omit this file or set
+`channel = "stable"`.
 
 ## Lints
 
@@ -175,15 +195,19 @@ runners** (`safe-to-run`). Keep them vetted and scanned in `cargo-deny` and
 
 ## Binary and library targets
 
+Cargo automatically discovers `src/lib.rs` and `src/main.rs` (named after the
+package), so most crates need no explicit target tables at all. Add `[[bin]]`
+only when renaming a binary or placing it at a custom path:
+
 ```toml
 [[bin]]
-name = "my-crate"
+name = "my-tool"
 path = "src/main.rs"
 ```
 
 If your project is primarily a CLI binary, put core logic in `src/lib.rs` and
-keep `src/main.rs` as a thin entrypoint—this makes unit, property, fuzz, and
-benchmark targets straightforward to wire up.
+keep `src/main.rs` as a thin entrypoint—this enables `cargo test --doc` and
+makes unit, property, fuzz, and integration tests straightforward to wire up.
 
 ## Further reading
 

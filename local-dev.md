@@ -30,7 +30,7 @@ lint:
 doc:
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features --locked
 
-# Run the test suite (nextest + doctests).
+# Run the test suite (nextest + doctests; omit `cargo test --doc` if the crate has no `src/lib.rs`).
 test:
     cargo nextest run --locked
     cargo test --doc --locked
@@ -78,6 +78,11 @@ ci: fmt lint doc test audit msrv deny trivy zizmor vet geiger
 - **CI parity** — every recipe uses `--locked` where applicable so local checks
   match CI behavior bit-for-bit.
 - **Fail-fast** — `just ci` stops immediately at the first failing gate.
+
+Pair the `justfile` with a `rust-toolchain.toml` (see
+[Project Scaffolding](scaffolding.md#toolchain-pinning-rust-toolchaintoml)) so
+`rustup` installs the exact same compiler, `rustfmt`, and `clippy` automatically
+on first `cargo` invocation.
 
 ## `AGENTS.md` and `CLAUDE.md`
 
@@ -154,6 +159,9 @@ so contributors fetch verified prebuilt binaries in seconds:
 ```bash
 cargo install cargo-binstall --locked
 cargo binstall -y just cargo-nextest cargo-semver-checks cargo-audit cargo-msrv cargo-deny cargo-vet zizmor cargo-geiger
+
+# Or build from source (always pass --locked):
+cargo install --locked just cargo-nextest cargo-semver-checks cargo-audit cargo-msrv cargo-deny cargo-vet zizmor cargo-geiger
 # trivy: https://trivy.dev/latest/getting-started/installation/
 ```
 

@@ -13,6 +13,8 @@ Use [`cargo-nextest`](https://nexte.st/) as the primary runner, paired with
 
 ```bash
 cargo nextest run --locked
+# Run doctests when the package has a library target (`src/lib.rs`);
+# binary-only packages without `src/lib.rs` should omit this step.
 cargo test --doc --locked
 ```
 
@@ -22,40 +24,42 @@ cargo test --doc --locked
   aborts, working-directory changes, or leaky threads never poison sibling tests.
 - **Speed & timeouts** — up to 3x faster execution on multi-core runners, built-in
   slow-test warnings, leak detection, and JUnit XML output for CI evidence.
-- **Doctest pairing** — keeping `cargo test --doc --locked` ensures every code
-  example in `///` API documentation compiles and passes.
+- **Doctest pairing** — keeping `cargo test --doc --locked` (for crates with a
+  library target) ensures every code example in `///` API documentation compiles
+  and passes.
 
 ## Unit tests
 
 Unit tests live in a `mod tests` block **beside the code they test**:
 
 ```rust
-// src/payload.rs
+// src/config.rs
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn model_name_defaults_to_claude_when_missing() {
-        let payload: Payload = serde_json::from_str("{}").unwrap();
-        assert_eq!(payload.model_name(), "Claude");
+    fn name_defaults_when_missing() {
+        let cfg: Config = serde_json::from_str("{}").unwrap();
+        assert_eq!(cfg.display_name(), "default");
     }
 
     #[test]
-    fn model_name_uses_display_name_when_present() {
-        let payload: Payload =
-            serde_json::from_str(r#"{"model":{"display_name":"Sonnet"}}"#).unwrap();
-        assert_eq!(payload.model_name(), "Sonnet");
+    fn name_uses_configured_value_when_present() {
+        let cfg: Config = serde_json::from_str(r#"{"name":"alpha"}"#).unwrap();
+        assert_eq!(cfg.display_name(), "alpha");
     }
 }
 ```
 
 ### Rules for unit tests
 
-1. **Test observable behavior**, not brittle implementation details.
+1. **Test observable behavior**, not brittle implementation details. (`mod tests`
+   is a child module and can test private helpers directly, so assert on inputs
+   and outputs rather than internal structure.)
 2. **One behavior per test** where practical. A test named
-   `model_name_defaults_to_claude_when_missing` should verify exactly that.
+   `name_defaults_when_missing` should verify exactly that.
 3. **Test edge cases** — empty strings, zero/boundary values, malformed UTF-8,
    wrong types, and missing fields. Every fallback branch deserves a test.
 4. **Use `#[expect(clippy::float_cmp, reason = "...")]`** when asserting against
@@ -73,8 +77,8 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 #[test]
-fn minimal_payload_shows_model_and_dirname_only() {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ferrisbar"));
+fn valid_input_prints_configured_name() {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_my-crate"));
     cmd.env_clear()
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -85,15 +89,12 @@ fn minimal_payload_shows_model_and_dirname_only() {
         .stdin
         .take()
         .expect("child stdin handle")
-        .write_all(br#"{"model":{"display_name":"Sonnet"}}"#)
+        .write_all(br#"{"name":"alpha"}"#)
         .expect("failed to write to child stdin");
 
     let output = child.wait_with_output().expect("failed to wait on child");
     assert!(output.status.success());
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout),
-        "\x1b[2mSonnet\x1b[0m"
-    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "alpha\n");
 }
 ```
 
@@ -105,9 +106,11 @@ fn minimal_payload_shows_model_and_dirname_only() {
 - **Snapshot complex outputs with [`insta`](https://insta.rs/)** — for large
   JSON, diagnostic messages, or rendered CLI output, `insta` keeps expectations
   readable and reviewable via `cargo insta review`.
-- **Isolate the environment** — clear or override `HOME`, `XDG_CONFIG_HOME`,
-  `APPDATA`, and tool-specific env vars so host developer configs never leak
-  into tests.
+- **Isolate the environment on the child `Command`** — use `.env()`,
+  `.env_remove()`, or `.env_clear()` for `HOME`, `XDG_CONFIG_HOME`, `APPDATA`,
+  and app variables. Never call `std::env::set_var` or `remove_var` inside
+  multi-threaded tests—in Edition 2024 both functions are `unsafe` specifically
+  because mutating process-wide environment variables races across threads.
 - **Use `tempfile::tempdir()`** for filesystem tests so temporary directories
   are cleaned up automatically on drop.
 
@@ -115,20 +118,17 @@ fn minimal_payload_shows_model_and_dirname_only() {
 
 For parsers, state machines, and boundary math, use property-based testing with
 [`proptest`](https://docs.rs/proptest) to explore thousands of generated inputs
-and automatically shrink counterexamples to minimal reproducers:
+(including `NaN` and `±Infinity` via `any::<f64>()`) and automatically shrink
+counterexamples to minimal reproducers:
 
 ```rust
 use proptest::prelude::*;
 
 proptest! {
     #[test]
-    fn compute_used_stays_within_percentage_bounds(
-        remaining in 0.0f64..1_000_000.0,
-        total in 1.0f64..1_000_000.0,
-        acw in 0.0f64..1_000_000.0,
-    ) {
-        let used = compute_used(remaining, total, acw);
-        prop_assert!((0..=100).contains(&used));
+    fn percent_stays_within_0_to_100(used in any::<f64>(), total in any::<f64>()) {
+        let pct = compute_percent(used, total);
+        prop_assert!((0..=100).contains(&pct));
     }
 }
 ```
@@ -161,8 +161,19 @@ verify the test passes. The PR diff proves both the root cause and the fix.
 
 A library or CLI tool that panics (`unwrap`, `expect`, out-of-bounds slice
 indexing) on malformed external input is a denial-of-service bug. Test that
-hostile, truncated, empty, and wrong-typed inputs return structured errors or
-degrade gracefully.
+hostile, truncated, empty, and wrong-typed inputs return structured exit codes
+and never emit a Rust panic backtrace:
+
+```rust
+#[test]
+fn invalid_json_returns_usage_error_without_panicking() {
+    let out = run_with_stdin("not json");
+    assert_eq!(out.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("invalid configuration"));
+    assert!(!stderr.contains("panicked at"));
+}
+```
 
 ### Test precedence and fallback chains
 

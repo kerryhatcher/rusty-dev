@@ -54,14 +54,17 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-      - uses: taiki-e/install-action@75a7c0f8cb8b77ef2757283626db49f6920f75a7 # v2.90.6
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2.90.11
         with:
           tool: cargo-nextest
       - run: cargo nextest run --all-features --locked
+      # Omit `cargo test --doc` if the package has no library target (`src/lib.rs`).
       - run: cargo test --doc --all-features --locked
 
   lint:
@@ -69,11 +72,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --all-features --locked -- -D warnings
       - name: Check rustdoc and intra-doc links
@@ -86,11 +91,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-      - uses: taiki-e/install-action@75a7c0f8cb8b77ef2757283626db49f6920f75a7 # v2.90.6
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2.90.11
         with:
           tool: cargo-semver-checks
       - run: cargo semver-checks --locked
@@ -98,12 +105,17 @@ jobs:
   msrv:
     name: msrv (1.96)
     runs-on: ubuntu-latest
+    env:
+      # Override any committed `rust-toolchain.toml` so cargo uses 1.96.
+      RUSTUP_TOOLCHAIN: "1.96"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: "1.96"
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo test --all-features --locked
 
   security:
@@ -111,17 +123,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-      - uses: taiki-e/install-action@75a7c0f8cb8b77ef2757283626db49f6920f75a7 # v2.90.6
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2.90.11
         with:
           tool: just,cargo-audit,cargo-deny,cargo-geiger
       - run: cargo audit
       - run: cargo deny check
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: "v0.76.2"
           scan-type: fs
           scanners: vuln,secret
           exit-code: "1"
@@ -136,11 +151,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-      - uses: taiki-e/install-action@75a7c0f8cb8b77ef2757283626db49f6920f75a7 # v2.90.6
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2.90.11
         with:
           tool: cargo-vet
       - run: cargo vet --locked
@@ -195,23 +212,41 @@ commit SHA with a trailing version comment:
 ```
 
 Mutable tags (`@v1`, `@v0.36.0`) can be retroactively repointed if an upstream
-action repository is compromised—as demonstrated in real-world tag-hijacking
-attacks against CI scanners. Dependabot updates SHA-pinned actions automatically
-while keeping the human-readable `# vX.Y.Z` comment intact, and `zizmor` flags
-any unpinned action added in a pull request.
+action repository is compromised. In March 2026, an attacker rewrote 75+ tags
+of `aquasecurity/trivy-action` and `setup-trivy` to credential-stealing payloads
+(`CVE-2026-33634` / `GHSA-69fq-xp46-6x23`)—workflows referencing mutable tags
+executed the payload, whereas SHA-pinned workflows were unaffected.
 
-Enable organization/repository Actions policies requiring full-SHA pins,
-restricting allowed actions, and blocking fork PR workflows from accessing
-secrets or write tokens. Note that `actions/checkout@v7` also blocks unsafe
-fork checkouts on `pull_request_target` triggers.
+Always resolve a tag to its commit SHA yourself rather than copying SHAs blindly
+from documentation:
+
+```bash
+gh api repos/actions/checkout/commits/v7.0.1 --jq .sha
+```
+
+Additional workflow hardening rules:
+
+- **Enable GitHub's Actions SHA-pinning policy** at the repository or
+  organization level, and restrict allowed third-party actions and reusable
+  workflows.
+- **Set `persist-credentials: false` on `actions/checkout`** unless a later step
+  in that job genuinely pushes commits (`zizmor` flags omitted
+  `persist-credentials: false` under its `artipacked` rule).
+- **Verify Node 24 runtime support** on pinned actions—GitHub removed Node 20
+  from hosted runners in September 2026, so legacy `node20` actions fail.
+- **Block untrusted fork access to secrets/write tokens** (`actions/checkout@v7`
+  also blocks unsafe fork checkouts on `pull_request_target` triggers).
 
 ## Evidence retention and scheduled checks
 
 PR checks only run when code changes; the weekly `schedule` trigger ensures newly
-published RustSec advisories fail visibly even on quiet repositories. Retain
-release-job logs, checksums, SBOMs, provenance attestations, and test reports
-for your support or contractual retention window, and avoid uploading sensitive
-logs or raw memory dumps as public artifacts.
+published RustSec advisories fail visibly even on quiet repositories. (Because a
+brand-new upstream advisory can fail every open PR simultaneously, some teams
+split advisory scanning into a dedicated daily scheduled workflow rather than a
+required PR check; either way, record alert triage.) Retain release-job logs,
+checksums, SBOMs, provenance attestations, and test reports for your support or
+contractual retention window, and avoid uploading sensitive logs or raw memory
+dumps as public artifacts.
 
 ## Further reading
 

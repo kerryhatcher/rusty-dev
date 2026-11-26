@@ -29,10 +29,14 @@ trivy fs --scanners vuln,secret --exit-code 1 --skip-dirs target .
 - `--exit-code 1` — fails CI when findings exist.
 - `--skip-dirs target` — skips compiled build artifacts for speed and signal.
 
-> **Always pin scanner actions by full commit SHA:** In early 2026, mutable
-> version tags on `aquasecurity/trivy-action` (`v0.0.1`–`v0.34.2`) were
-> retroactively repointed in a supply-chain compromise. Always use `v0.36.0` or
-> newer **pinned to an immutable 40-character commit SHA**—never a floating tag.
+> **Pin both the scanner action SHA and the Trivy binary `version:`:** In March
+> 2026, attackers published a malicious Trivy release (`v0.69.4`) and rewrote
+> 75+ tags of `aquasecurity/trivy-action` and `setup-trivy` to
+> credential-stealing code (`CVE-2026-33634` / `GHSA-69fq-xp46-6x23`). Security
+> scanners execute with full access to runner memory and environment: always pin
+> the action to a verified 40-char commit SHA, pin the `version:` input rather
+> than floating on `latest`, and run scanners in read-only jobs holding zero
+> secrets.
 
 ## CI workflow static analysis: `zizmor`
 
@@ -100,17 +104,20 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-      - uses: taiki-e/install-action@75a7c0f8cb8b77ef2757283626db49f6920f75a7 # v2.90.6
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2.90.11
         with:
           tool: just,cargo-audit,cargo-deny,cargo-geiger
       - run: cargo audit
       - run: cargo deny check
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: "v0.76.2"
           scan-type: fs
           scanners: vuln,secret
           exit-code: "1"

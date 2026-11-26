@@ -54,6 +54,17 @@ updates:
   routine releases age safely while **security advisory updates bypass the
   cooldown automatically**.
 
+### What Dependabot covers (and does not)
+
+- **Routine version updates** — updates explicitly declared dependencies in
+  `Cargo.toml` (and `Cargo.lock`) plus SHA-pinned GitHub Actions (updating both
+  the commit SHA and its `# vX.Y.Z` comment).
+- **Security updates** — opens immediate PRs (bypassing cooldown) for vulnerable
+  dependencies, including lockfile-only transitive crates.
+- **Not covered** — `rust-toolchain.toml` is not updated by Dependabot; bump it
+  deliberately or use [Renovate](https://docs.renovatebot.com/) if you want
+  automated toolchain PRs.
+
 ## Native Cargo publish-age cooldown (Rust 1.100+)
 
 Dependabot cooldowns do not stop a developer's manual `cargo update` or newly
@@ -93,7 +104,13 @@ libraries:
   breaking older toolchains.
 - **Upper bounds fragment downstream trees** — pinning `<1.2` in a library
   prevents downstream applications from unifying dependency versions or picking
-  up `1.2.x` security fixes.
+  up `1.2.x` security fixes. Add an upper-bound pin only for a concrete known
+  defect or missing upstream `rust-version` metadata, and document the reason
+  beside the pin.
+- **Set honest lower bounds in libraries** — if you rely on an API added in
+  `serde 1.0.200`, declare `"1.0.200"`, not `"1"`. Verify direct lower bounds
+  with `cargo +nightly update -Z direct-minimal-versions` followed by a check
+  build.
 
 ## Dependency hygiene
 
@@ -104,7 +121,8 @@ Every dependency adds CVE exposure, maintainer trust surface, compile time, and
 
 1. **Write trivial helpers inline** — if a utility takes 30–50 lines of safe
    standard-library Rust, write it directly instead of importing a micro-crate
-   and its transitive dependencies.
+   and its transitive dependencies. Inspect transitive weight and duplicate
+   versions with `cargo tree` and `cargo tree -d`.
 2. **Enable `unused_crate_dependencies = "warn"`** in `[lints.rust]` (backed by
    Cargo 1.100's unused-dependency diagnostics, or `cargo-machete` across complex
    multi-target workspaces) so refactored-away dependencies cannot linger in
@@ -141,9 +159,10 @@ its maintenance posture, and its `cargo vet` disposition.
   are unaffected—Cargo always ignores a dependency's `Cargo.lock` and resolves
   against `Cargo.toml`.
 - **Catching upstream breakage in libraries:** If you commit `Cargo.lock` in a
-  library, add a non-blocking scheduled CI job that runs `cargo update` +
-  `cargo test` so you still get early warning if a brand-new upstream release
-  breaks compatibility.
+  library, add a non-blocking scheduled CI job on `stable` that runs
+  `CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=allow cargo update` followed by
+  `cargo test` so you get early warning if a brand-new upstream release (even
+  one above your MSRV floor) breaks compatibility.
 
 ### `cargo update` discipline
 

@@ -105,9 +105,10 @@ and a realistic support/MSRV policy.
 
 ### 3. Lock down paths to `main` and `release`
 
-Enable branch and `v*` tag rulesets, Secret Scanning Push Protection,
-least-privilege workflow `permissions:`, full-SHA action pins, `zizmor` workflow
-scanning, and Dependabot with `groups:` and `cooldown:`.
+Enable branch and `v*` tag rulesets, GitHub Immutable Releases, Secret Scanning
+Push Protection, least-privilege workflow `permissions:`, full-SHA action pins
+(enforced by Actions policy), `zizmor` workflow scanning, and Dependabot with
+`groups:` and `cooldown:`.
 
 ### 4. Make builds deterministic and modern
 
@@ -135,13 +136,14 @@ Maintain a lightweight procurement packet linking this repository's controls to
 adopter frameworks:
 
 - **US Federal (SSDF, OMB M-26-05, & CISA 2026 SBOM):** Federal agencies evaluate
-  secure development practices against **NIST SP 800-218 (SSDF v1.1)** and AI
-  governance supplement **SP 800-218A**. Under **OMB Memorandum M-26-05** (which
-  rescinded the blanket M-22-18/M-23-16 universal mandate in favor of risk-based
-  agency procurement), agencies still routinely require CISA Secure Software
-  Development Attestations and machine-readable SBOMs meeting **CISA's July 2026
-  Minimum Elements** via contract clauses. Obtain legal/compliance review before
-  signing formal government attestations.
+  secure development practices against **NIST SP 800-218 (SSDF v1.1)**, AI
+  governance supplement **SP 800-218A**, and track the **SP 800-218 Rev. 1
+  (SSDF v1.2) draft** (map to final v1.1 until v1.2 is finalized). Under **OMB
+  Memorandum M-26-05** (which rescinded the blanket M-22-18/M-23-16 universal
+  mandate in favor of risk-based agency procurement), agencies still routinely
+  require CISA Secure Software Development Attestations and machine-readable
+  SBOMs meeting **CISA's July 2026 Minimum Elements** via contract clauses.
+  Obtain legal/compliance review before signing formal government attestations.
 - **European Union (Cyber Resilience Act — CRA):** Commercial manufacturers
   placing software on the EU market are subject to **Article 14 mandatory 24h/72h
   reporting** of actively exploited vulnerabilities (live **September 11, 2026**)
@@ -149,17 +151,18 @@ adopter frameworks:
   **December 11, 2027** (when deferred Open-Source Steward obligations also
   apply). Automated SBOMs, `cargo-auditable`, and coordinated disclosure make
   24-hour impact triage achievable.
-- **Transparent public signals:** [OpenSSF Best Practices Badge](https://www.bestpractices.dev/)
-  and [OpenSSF Scorecard](https://securityscorecards.dev/) give prospective
-  adopters automated visibility into branch protection, pinned dependencies, and
-  token permissions, complementing—not replacing—customer risk review.
+- **Transparent public signals:** [OpenSSF Best Practices Badge](https://www.bestpractices.dev/),
+  [OpenSSF Scorecard](https://scorecard.dev/), and the tiered
+  [OpenSSF OSPS Baseline](https://baseline.openssf.org/) give prospective
+  adopters automated visibility and a structured control catalog complementing
+  customer risk review.
 
 ## Source documents
 
-- [NIST SP 800-218: Secure Software Development Framework (SSDF)](https://doi.org/10.6028/NIST.SP.800-218)
+- [NIST SP 800-218: Secure Software Development Framework (SSDF)](https://doi.org/10.6028/NIST.SP.800-218) & [SP 800-218 Rev. 1 (SSDF v1.2 draft)](https://csrc.nist.gov/pubs/sp/800/218/r1/ipd)
 - [CISA 2026 Minimum Elements for a Software Bill of Materials (SBOM)](https://www.cisa.gov/sbom)
 - [CISA Software Acquisition Guide for Government Enterprise Consumers](https://www.cisa.gov/resources-tools/resources/software-acquisition-guide-government-enterprise-consumers)
 - [EU Cyber Resilience Act (Regulation (EU) 2024/2847)](https://eur-lex.europa.eu/eli/reg/2024/2847/oj)
 - [SLSA v1.2 specification](https://slsa.dev/spec/v1.2/)
-- [OpenSSF Best Practices Badge](https://www.bestpractices.dev/) & [OpenSSF Scorecard](https://securityscorecards.dev/)
+- [OpenSSF Best Practices Badge](https://www.bestpractices.dev/), [OpenSSF Scorecard](https://scorecard.dev/), & [OpenSSF OSPS Baseline](https://baseline.openssf.org/)
 - [GitHub Rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets)

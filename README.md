@@ -21,7 +21,7 @@ under the [EU Cyber Resilience Act (CRA)](https://eur-lex.europa.eu/eli/reg/2024
 - [Secure development lifecycle](secure-development.md) — threat modeling,
   secure defaults, ANSSI & Edition 2024 safety rules, testing, and SSDF mapping
 - [Project scaffolding](scaffolding.md) — `Cargo.toml` setup, Edition 2024,
-  rolling MSRV, `[lints]` configuration, and `unsafe_code = "forbid"`
+  `rust-toolchain.toml`, rolling MSRV, `[lints]`, and `unsafe_code = "forbid"`
 - [Code quality gates](code-quality.md) — `rustfmt`, `clippy` (`#[expect]`),
   `rustdoc` checks, and `cargo-semver-checks`
 - [Testing strategy](testing.md) — unit, integration, doctests, `cargo-nextest`,
@@ -60,7 +60,7 @@ produce.
 
 - [NIST SP 800-218: Secure Software Development Framework (SSDF)](https://doi.org/10.6028/NIST.SP.800-218)
 - [ANSSI Secure Rust Guidelines](https://anssi-fr.github.io/rust-guide/)
-- [OpenSSF Best Practices Badge](https://www.bestpractices.dev/)
+- [OpenSSF Best Practices Badge](https://www.bestpractices.dev/), [OpenSSF Scorecard](https://scorecard.dev/), and [OpenSSF OSPS Baseline](https://baseline.openssf.org/)
 - [SLSA v1.2 specification](https://slsa.dev/spec/v1.2/)
 - [CISA 2026 Minimum Elements for a Software Bill of Materials (SBOM)](https://www.cisa.gov/sbom)
 - [CISA Software Acquisition Guide for Government Enterprise Consumers](https://www.cisa.gov/resources-tools/resources/software-acquisition-guide-government-enterprise-consumers)

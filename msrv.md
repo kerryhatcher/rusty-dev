@@ -45,20 +45,34 @@ dependency resolver is **MSRV-aware by default**
   declares `rust-version = "1.96"`, Cargo automatically selects the newest
   compatible version that still supports `1.96` instead of breaking your MSRV
   build.
-- Consequently, you **do not** need brittle `<x.y` upper-bound version pins in
-  `Cargo.toml` just to protect MSRV. (If you ever want to inspect the newest
-  versions regardless of MSRV when evaluating an MSRV bump, pass
-  `cargo update --ignore-rust-version` or inspect crate metadata with the
-  built-in `cargo info <crate>` command.)
+- Consequently, you rarely need brittle `<x.y` upper-bound version pins in
+  `Cargo.toml` just to protect MSRV. (To inspect the newest versions regardless
+  of MSRV when evaluating an MSRV bump, pass `cargo update --ignore-rust-version`
+  or check crate metadata with the built-in `cargo info <crate>` command.)
+
+### Resolver limits (why the CI gate is still required)
+
+Resolver v3's `fallback` policy is a **preference, not a hard filter**:
+
+1. If *no* release matching your semver requirement supports your `rust-version`,
+   Cargo still selects a newer release rather than failing resolution.
+2. Workspace version/feature unification across crates with different MSRVs can
+   pull a newer shared version.
+3. Dependencies that omit `package.rust-version` cannot be filtered by the
+   resolver—if such a crate silently raises its MSRV, pin its upper bound with
+   a comment noting when the pin can be dropped.
 
 ## Verifying the MSRV locally
 
-Use [`cargo-msrv`](https://github.com/foresterre/cargo-msrv) locally to verify
-that your crate compiles cleanly on the exact toolchain declared in
-`rust-version`:
+Use [`cargo-msrv`](https://github.com/foresterre/cargo-msrv) (or
+`cargo hack check --rust-version` from [`cargo-hack`](https://github.com/taiki-e/cargo-hack))
+locally to verify that your crate compiles cleanly on the exact toolchain
+declared in `rust-version`:
 
 ```bash
 cargo msrv verify
+# Need to discover an unknown MSRV by bisecting toolchains? Run:
+# cargo msrv find
 ```
 
 ### In the `justfile`
@@ -79,12 +93,17 @@ jobs:
   msrv:
     name: msrv (1.96)
     runs-on: ubuntu-latest
+    env:
+      # Override any committed `rust-toolchain.toml` so cargo uses 1.96.
+      RUSTUP_TOOLCHAIN: "1.96"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: "1.96"
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo test --all-features --locked
 ```
 
@@ -93,10 +112,9 @@ jobs:
 - Standard-library behavior, `const` evaluation, or transitive crates without
   an explicit `rust-version` field can still fail at link or test time on an
   older compiler.
-- For published libraries that omit `Cargo.lock` or support wide version ranges,
-  consider an additional check with `-Z minimal-versions` (on nightly) or
-  [`cargo-hack`](https://github.com/taiki-e/cargo-hack) to verify your declared
-  minimum dependency bounds actually compile.
+- For published libraries, consider also checking direct lower bounds with
+  `cargo +nightly update -Z direct-minimal-versions` so minimum declared semver
+  bounds remain honest.
 
 ## How to bump the MSRV
 
