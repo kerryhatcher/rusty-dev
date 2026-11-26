@@ -132,7 +132,8 @@ support audit-friendly JSON export, and stack cleanly across an organization):
      `security`, `vet`, and `pr-title` from
      [Release automation](releases.md#enforcing-the-convention)) with
      **Require branches to be up to date** (or enable **GitHub Merge Queue**
-     on busy repositories).
+     on busy repositories, with **Only merge non-failing pull requests**
+     enabled).
    - **Require conversation resolution**, **Require linear history**, and
      **Block force pushes**.
    - **Require signed commits** where compatible with your automated GitHub App

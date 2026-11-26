@@ -33,7 +33,7 @@ Unlike generic language-agnostic release bots, `release-plz`:
 |--------|--------------|---------|
 | `fix:` | Patch (`0.1.x` / `1.0.x`) | `fix: degrade wrong-typed JSON fields to None` |
 | `feat:` | Minor (`1.x.0`) | `feat: add TOML config file support` |
-| `feat!:` / `BREAKING CHANGE:` (or API break caught by `cargo-semver-checks`) | Major (`x.0.0`, or minor on `0.x`) | `feat!: require structured Error return` |
+| `<type>!:` (or an API break caught by `cargo-semver-checks` in a Release PR) | Major (`x.0.0`, or minor on `0.x`) | `feat!: require structured Error return` |
 
 Non-user-facing prefixes (`docs:`, `chore:`, `ci:`, `refactor:`, `test:`) do not
 trigger a release on their own, **provided** `release-plz.toml` sets
@@ -41,8 +41,21 @@ trigger a release on their own, **provided** `release-plz.toml` sets
 that filter, `release-plz` updates a package on every commit and opens a Release
 PR with a patch bump. Those commits still appear in the changelog. To ship a
 dependency fix on its own (for example a security patch in a binary's
-`Cargo.lock`), title the PR `fix(deps): …`. The full grammar (types, optional
-`(scope)`, `!`, and `BREAKING CHANGE:` footers) is defined by the
+`Cargo.lock`), title the PR `fix(deps): …`.
+
+Mark every breaking change with `!` in the commit header (`feat!:`,
+`refactor(api)!:`), even though the specification also allows a
+`BREAKING CHANGE:` footer alone. The `release_commits` pattern below is
+anchored to the header, and with squash merges the footer never reaches `main`
+anyway. `cargo-semver-checks` runs only when `release-plz` prepares a Release
+PR, so a breaking change in a filtered-out commit (`refactor:` with only a
+footer) opens no Release PR by itself. It is picked up, and bumped as major,
+only when the next `feat` or `fix` triggers one. The CI
+[`semver` job](ci-cd.md#semver--public-api-compatibility-libraries) still flags
+the API break on the PR itself, which is the place to catch a missing `!`.
+
+The full grammar (types, optional `(scope)`, `!`, and `BREAKING CHANGE:`
+footers) is defined by the
 [Conventional Commits 1.0.0 specification](https://www.conventionalcommits.org/en/v1.0.0/#specification).
 
 ### Enforcing the convention
@@ -88,6 +101,8 @@ The simplest reliable setup has three parts:
        types: [opened, edited, reopened, synchronize]
      # Required checks must also report on merge queue runs. The title was
      # already validated on the PR, so the job passes without a check there.
+     # This is only safe with the queue's "Only merge non-failing pull
+     # requests" setting enabled (see below).
      merge_group:
 
    permissions: {}
@@ -121,6 +136,10 @@ The simplest reliable setup has three parts:
 
    Make `pr-title` a required status check in the branch ruleset (see
    [Project governance](governance.md#branch-and-tag-protection-with-github-rulesets)).
+   If you use GitHub Merge Queue, enable **Only merge non-failing pull
+   requests** in the queue's ruleset settings. Otherwise a PR whose title
+   check failed can merge as part of a group, because the merge-group run
+   does not re-check titles.
 
 3. **Make bot PRs conform too.** `release-plz` titles its Release PRs
    `chore: release v…` (or `chore(<package>): release v…` when one package in
