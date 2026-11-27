@@ -156,6 +156,8 @@ flate2 = { version = "1", default-features = false, features = ["rust_backend"] 
 2. Do not set a maximum minor version with a constraint such as `<x.y` in libraries.
    This constraint can prevent users from using one dependency version or getting a
    security fix. Resolver v3 gives priority to versions that support the MSRV.
+   If a known incompatible version has incorrect or missing MSRV metadata, set a maximum version.
+   Record the condition for removal of that constraint.
 3. If you use only some features, disable the default features. Each enabled
    feature can add dependencies that you must audit.
 4. Use a pure-Rust backend when possible. Examples include `rustls`,

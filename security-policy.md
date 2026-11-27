@@ -56,10 +56,13 @@ EU market. They cover actively exploited vulnerabilities and severe
 incidents.
 
 Use ENISA's Single Reporting Platform. The reporting period starts when you
-first know about the vulnerability or incident. Send an early warning in
-24 hours or less from that time. If the early warning does not contain the
-necessary information, send a notification. Send it in 72 hours or less from the start
-of the reporting period.
+first know about the vulnerability or incident. Send an early warning as
+soon as possible. The maximum time is 24 hours from the start of the
+reporting period.
+
+If the early warning does not contain the necessary information, send a
+notification as soon as possible. The maximum time is 72 hours from the
+start of the reporting period.
 
 If the earlier reports do not contain the necessary information, send a final report.
 

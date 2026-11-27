@@ -126,9 +126,10 @@ before you build the library.
 4. Set `env.RUSTUP_TOOLCHAIN` in the job to the new MSRV.
 5. Set the toolchain action's `with.toolchain` input to the new MSRV.
 6. Update `AGENTS.md`.
-7. Commit these changes together. Use a commit title that agrees with your
-   Semantic Versioning policy, for example `chore: bump MSRV to 1.96`.
-8. If the previous MSRV limited dependency versions, use `cargo update`.
+7. If the previous MSRV limited dependency versions, use `cargo update`.
+8. Commit these changes together. If `Cargo.lock` changes, include it in the commit.
+   Use a commit title that agrees with your Semantic Versioning policy.
+   For example, use `chore: bump MSRV to 1.96`.
 
 ## Further reading
 

@@ -405,8 +405,9 @@ can check a deployed binary without the source code or `Cargo.lock`.
 
 Put each binary in an archive with `README.md`, `LICENSE-MIT`, and `LICENSE-APACHE`.
 Put all release archives in `dist/`. In the binary crate directory, set
-`TARGET` to the target triple for the release build. Use the same Cargo
-features that you use for the build.
+`TARGET` to the target triple for the release build. Use the same feature
+options for `cargo cyclonedx` and the build. These options include
+`--features`, `--no-default-features`, and `--all-features`.
 
 ```bash
 mkdir -p dist
@@ -431,8 +432,8 @@ check the files in their download directory.
   set -e
   cd dist
   shopt -s nullglob
-  archives=(my-crate-*.tar.gz my-crate-*.zip)
-  sboms=(*.cdx.json my-crate-*.spdx.json)
+  archives=(*.tar.gz *.zip)
+  sboms=(*.cdx.json *.spdx.json)
   (( ${#archives[@]} > 0 && ${#sboms[@]} > 0 ))
   sha256sum -- "${archives[@]}" "${sboms[@]}" > SHA256SUMS
 )
@@ -461,8 +462,10 @@ links the file to the repository, commit SHA, and release workflow.
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
-            dist/my-crate-*
+            dist/*.tar.gz
+            dist/*.zip
             dist/*.cdx.json
+            dist/*.spdx.json
 ```
 
 1. On GitHub, open the repository **Settings**.
@@ -483,6 +486,9 @@ links the file to the repository, commit SHA, and release workflow.
 The example uses `build-binaries` for file uploads. The publication job waits for
 all targets in the build matrix. It publishes the draft for each tag that
 `release-plz` reports.
+
+If you do not have a `build-binaries` job, omit it from `needs`. Keep
+`release` and each job that uploads release files in `needs`.
 
 ```yaml
   publish-release:
