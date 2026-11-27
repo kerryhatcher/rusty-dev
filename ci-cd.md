@@ -1,23 +1,23 @@
 # CI/CD Pipeline
 
-A production Rust CI pipeline enforces every quality, compatibility, and
-security gate on every change, runs across target operating systems, constrains
-runner permissions to read-only by default, and pins third-party GitHub Actions
-by immutable commit SHA.
+The continuous integration (CI) pipeline checks quality, compatibility, and
+security for each change. It starts jobs on each target operating system.
+Jobs have read-only permissions by default. The workflow uses full commit
+SHAs for GitHub Actions.
 
-## Design principles
+## Workflow configuration
 
-1. **Separate jobs for separate concerns** — test, lint/doc, SemVer, MSRV,
-   security, and supply-chain vetting run in parallel jobs so a formatting
-   error never hides a Windows test regression or advisory alert.
-2. **Cross-platform test matrix** — execute tests on Linux, macOS, and Windows
-   to catch path-separator, newline, filesystem-locking, and environment bugs.
-3. **Cancel superseded PR runs** — use `concurrency` to cancel stale PR jobs on
-   new pushes while never cancelling `main` branch runs.
-4. **Cache deterministically** — `Swatinem/rust-cache` caches `~/.cargo` and
-   relevant `target/` artifacts, cutting CI wall-clock time by 50–80%.
-5. **Audit the workflow itself** — scan `.github/workflows/` with `zizmor` so
-   template injections, over-scoped tokens, or unpinned actions cannot land.
+1. Put the test, lint, SemVer, MSRV, security, and supply-chain checks in different jobs.
+   The jobs can operate in parallel. A format error does not stop the Windows
+   test job or the security job.
+2. Use Linux, macOS, and Windows in the test matrix. The matrix can find
+   differences in paths, newlines, file locks, and environment variables.
+3. Use `concurrency` to cancel a previous pull request job after a new push.
+   Do not cancel jobs for `main`.
+4. Use `Swatinem/rust-cache` to cache `~/.cargo` and applicable files in `target/`.
+   This can decrease elapsed CI time by 50 to 80 percent.
+5. Scan `.github/workflows/` with `zizmor`. The scan can identify template injection and actions without full commit SHAs.
+   It can also identify tokens that have more permissions than necessary.
 
 ## The CI workflow
 
@@ -28,11 +28,11 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Required checks must also report on merge queue runs, or a queue waits on
-  # them forever. Merge-group refs are unique, so they are never cancelled.
+  # Mandatory checks must report a result to the merge queue.
+  # Each merge group uses a different ref. Thus, a new group cannot cancel its checks.
   merge_group:
   schedule:
-    # Weekly scan catches newly published advisories on quiet repositories.
+    # The weekly scan finds new advisories when there are no recent changes.
     - cron: "0 6 * * 1"
 
 concurrency:
@@ -42,8 +42,8 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
 
-# Default every job to read-only. Grant narrowly scoped write/OIDC permissions
-# only inside dedicated release/attestation jobs on protected refs.
+# Give jobs read-only access by default.
+# Give write or OIDC permissions only to release and attestation jobs on protected refs.
 permissions:
   contents: read
 
@@ -67,7 +67,7 @@ jobs:
         with:
           tool: cargo-nextest
       - run: cargo nextest run --all-features --locked
-      # Omit `cargo test --doc` if the package has no library target (`src/lib.rs`).
+      # If the package has no library target (src/lib.rs), omit the doctest command.
       - run: cargo test --doc --all-features --locked
 
   lint:
@@ -93,7 +93,7 @@ jobs:
     name: msrv (1.96)
     runs-on: ubuntu-latest
     env:
-      # Override any committed `rust-toolchain.toml` so cargo uses 1.96.
+      # Use Rust 1.96 instead of the version in rust-toolchain.toml.
       RUSTUP_TOOLCHAIN: "1.96"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -152,22 +152,21 @@ jobs:
 
 ### The `semver` workflow (`.github/workflows/semver.yml`)
 
-The `semver` check lives in its own workflow because it depends on the PR
-title, so it must re-run when the title is edited. Adding `edited` to the main
-CI workflow would instead re-run the whole test matrix on every title or
-description edit.
+The `semver` check uses the pull request title. Its workflow starts again
+when the title changes. Keep the `edited` trigger in the semver workflow
+to prevent title and description changes from starting the full test matrix.
 
 ```yaml
 name: SemVer
 
 on:
   pull_request:
-    # `edited`: the PR title decides whether a break is allowed, so renaming
-    # `feat!:` to `feat:` must re-run the check.
+    # Use edited to start the check again when the pull request title changes.
+    # A change from feat!: to feat: can change the result.
     types: [opened, edited, reopened, synchronize]
-  # Required checks must report in merge queues. The job is skipped there (a
-  # skipped job reports success) because the PR run already checked the title.
-  # Only safe with the queue's "Only merge non-failing pull requests" setting.
+  # Mandatory checks must report a result to the merge queue.
+  # The job skips the check and reports success because CI checks each pull request.
+  # In queue settings, enable "Only merge non-failing pull requests".
   merge_group:
 
 concurrency:
@@ -197,12 +196,12 @@ jobs:
       - name: Check API changes against the base branch
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          # Through env, never inline `${{ }}`, so a title cannot inject shell.
+          # Read the title from the environment. Do not insert it into shell code.
           TITLE: ${{ github.event.pull_request.title }}
         run: |
-          # A title marked breaking (`feat!:`, `refactor(api)!:`) declares an
-          # intentional break: reviewers approve it and release-plz bumps the
-          # major version. Any other title must not break the public API.
+          # The ! marker tells reviewers about an intentional incompatible change.
+          # release-plz selects the version for that change.
+          # Without the marker, the public API must stay compatible.
           release_type=minor
           if [[ "$TITLE" =~ ^[a-z]+(\([^\)]*\))?!: ]]; then
             release_type=major
@@ -214,106 +213,112 @@ jobs:
 
 ### `test` — cross-platform nextest + doctests
 
-- Runs on **Linux, macOS, and Windows** with `fail-fast: false` so OS-specific
-  failures on Windows or macOS are visible in full.
-- Uses `cargo nextest run --all-features --locked` for isolated, parallel binary
-  tests plus `cargo test --doc --all-features --locked` for documentation examples.
+The job uses Linux, macOS, and Windows. With `fail-fast: false`, a failure on
+one platform does not stop the tests on the other platforms. The job uses
+`cargo nextest run --all-features --locked` with one process for each test. It
+uses `cargo test --doc --all-features --locked` for documentation examples.
 
 ### `lint` — formatting, clippy, and rustdoc
 
-- Runs `cargo fmt --check`, `cargo clippy --all-targets --all-features --locked -- -D warnings`,
-  and `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features --locked`.
+The job uses these commands.
+
+- `cargo fmt --check`
+- `cargo clippy --all-targets --all-features --locked -- -D warnings`
+- `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features --locked`
 
 ### `semver` — public API compatibility (libraries)
 
-- Runs from its own workflow (see
-  [above](#the-semver-workflow-githubworkflowssemveryml)) so that editing the PR
-  title re-runs it.
-- Uses `cargo-semver-checks` to compare the PR against its base commit
-  (`--baseline-rev`), so each PR is judged only on the API changes it
-  introduces. Comparing against crates.io instead would keep failing every PR
-  after an intentional break merges, until the next release ships.
-- An intentional break needs no version edit and no override: mark the PR
-  title with `!` (see [Commit conventions](releases.md#commit-conventions)). The
-  job then checks with `--release-type major`, the break is visible in the
-  title for reviewers to approve, and `release-plz` bumps the major version
-  (minor on `0.x`) in the next Release PR. Without `!`, it checks with
-  `--release-type minor` and fails on every break it detects, so an unmarked,
-  detected break cannot merge. `cargo-semver-checks` does not detect every
-  kind of break (for example, some return-type changes), so reviewers still
-  need to check for a missing `!`.
-- Runs only on pull requests; merge-queue runs skip it and report success. If
-  you use GitHub Merge Queue, enable **Only merge non-failing pull requests**,
-  or a PR whose `semver` check failed can merge as part of a group. Release-time
-  checks against the published crate are done by `release-plz`
-  (`semver_check = true`).
-- Binary-only repositories without a published library target can omit this
-  job.
+The [`semver` workflow](#the-semver-workflow-githubworkflowssemveryml) starts
+again when the pull request title changes. The
+`cargo-semver-checks` command compares the pull request with its base commit
+(`--baseline-rev`). A comparison with crates.io could reject all
+pull requests after an intentional incompatible change until the next release.
+
+For an intentional incompatible change, add `!` to the pull request title.
+Refer to [Commit conventions](releases.md#commit-conventions).
+The job uses `--release-type major` when the title contains `!`. The title
+shows the change to reviewers. `release-plz` increases the major version in
+the next release pull request, or the minor version for `0.x`.
+
+If the title has no `!`, the job uses `--release-type minor`. The job fails
+when it finds an incompatible change. `cargo-semver-checks` can miss some
+changes, such as some return-type changes. Reviewers must also check that the
+title has the marker when necessary.
+
+The job checks pull requests. A merge-queue job skips the check and reports
+success. If you use GitHub Merge Queue, enable **Only merge non-failing pull requests**.
+Otherwise, a pull request with a failed check can merge as part of a group.
+At release time, `release-plz` checks the published crate (`semver_check = true`).
+
+If the repository publishes only binaries, you can omit this job.
 
 ### `msrv` — MSRV enforcement
 
-- Pins the exact `rust-version` from `Cargo.toml` (`"1.96"`) and executes the
-  full test suite with `--locked`.
+The workflow sets the MSRV directly. The job starts the full test suite with
+`--locked` on that toolchain.
+
+If you change `rust-version` in `Cargo.toml`, update the workflow in the same commit.
+Refer to [Increase the MSRV](msrv.md#increase-the-msrv).
 
 ### `security` — advisories, licenses, secrets, workflow linting, and `unsafe`
 
-- Runs `cargo audit` and `cargo deny check`.
-- Runs SHA-pinned Trivy filesystem scanning (`vuln,secret`).
-- Runs `zizmor` static security analysis against `.github/workflows/`.
-- Runs `just geiger` (informational `unsafe` trend report).
+The job uses these checks.
+
+- `cargo audit` and `cargo deny check`.
+- Trivy filesystem scans for vulnerabilities and secrets (`vuln,secret`). The
+  workflow uses the full commit SHA for the scanner action.
+- `zizmor` checks `.github/workflows/`.
+- `just geiger` gives an informational report on `unsafe` code.
 
 ### `vet` — locked supply-chain trust verification
 
-- Runs `cargo vet --locked` so CI verifies against the committed
-  `supply-chain/imports.lock` rather than fetching unreviewed external state
-  over the network.
+The job uses `cargo vet --locked`. The command uses the reviewed
+`supply-chain/imports.lock` and does not download new audit records.
 
 ## Pinning action versions and auditing workflows
 
-Pin **every** GitHub Action—first-party and third-party alike—to a full 40-char
-commit SHA with a trailing version comment:
+For each GitHub Action, use the full 40-character commit SHA. Add a comment
+with the version.
 
 ```yaml
 - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
 ```
 
-Mutable tags (`@v1`, `@v0.36.0`) can be retroactively repointed if an upstream
-action repository is compromised. In March 2026, an attacker rewrote 75+ tags
-of `aquasecurity/trivy-action` and `setup-trivy` to credential-stealing payloads
-(`CVE-2026-33634` / `GHSA-69fq-xp46-6x23`)—workflows referencing mutable tags
-executed the payload, whereas SHA-pinned workflows were unaffected.
+A person with access to an upstream action repository can move a tag such as
+`@v1` or `@v0.36.0`. In March 2026, attackers moved more than 75 tags of the
+Trivy actions to code that could steal credentials (`CVE-2026-33634`).
+Workflows that used the affected tags started the malicious code. Workflows
+with unaffected commit SHAs continued to use their original code.
 
-Always resolve a tag to its commit SHA yourself rather than copying SHAs blindly
-from documentation:
+To find the correct commit SHA, resolve the version tag in the action repository.
 
 ```bash
 gh api repos/actions/checkout/commits/v7.0.1 --jq .sha
 ```
 
-Additional workflow hardening rules:
+Use these workflow security controls.
 
-- **Enable GitHub's Actions SHA-pinning policy** at the repository or
-  organization level, and restrict allowed third-party actions and reusable
-  workflows.
-- **Set `persist-credentials: false` on `actions/checkout`** unless a later step
-  in that job genuinely pushes commits (`zizmor` flags omitted
-  `persist-credentials: false` under its `artipacked` rule).
-- **Verify Node 24 runtime support** on pinned actions—GitHub removed Node 20
-  from hosted runners in September 2026, so legacy `node20` actions fail.
-- **Block untrusted fork access to secrets/write tokens** (`actions/checkout@v7`
-  also blocks unsafe fork checkouts on `pull_request_target` triggers).
+- Enable the GitHub Actions policy that makes full commit SHAs mandatory.
+- Limit which third-party actions and reusable workflows can operate.
+- If the job does not push commits, set `persist-credentials: false` in `actions/checkout`.
+  `zizmor` can report an absent setting under `artipacked`.
+- Make sure that the actions support Node 24. GitHub removed Node 20 from its
+  hosted runners in September 2026.
+- Block access to secrets and write tokens from untrusted forks.
+  `actions/checkout@v7` also blocks unsafe fork checkouts with the
+  `pull_request_target` trigger.
 
-## Evidence retention and scheduled checks
+## Records and scheduled checks
 
-PR checks only run when code changes; the weekly `schedule` trigger ensures newly
-published RustSec advisories fail visibly even on quiet repositories. (Because a
-brand-new upstream advisory can fail every open PR simultaneously, some teams
-split advisory scanning into a dedicated daily scheduled workflow rather than a
-required PR check; either way, record alert triage.) Retain release-job logs,
-checksums, SBOMs, provenance attestations, and test reports for your support or
-contractual retention window, and avoid uploading sensitive logs or raw memory
-dumps as public artifacts.
+Pull request checks occur when code changes. A weekly `schedule` check can
+find new RustSec advisories in a repository without recent changes. A new
+advisory can also cause all open pull requests to fail. If necessary, put
+the advisory scan in its own daily workflow. Record the response to each alert.
+
+Keep release job logs, checksums, SBOMs, provenance attestations, and test
+reports for the support or contractual period. Do not publish logs with
+sensitive data or raw memory dumps as public artifacts.
 
 ## Further reading
 

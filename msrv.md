@@ -1,28 +1,26 @@
-# MSRV Management
+# Minimum Supported Rust Version
 
-The **Minimum Supported Rust Version** (MSRV) is the oldest Rust toolchain your
-crate promises to build and pass tests with. Declaring an explicit MSRV policy,
-using Edition 2024's MSRV-aware resolver, and testing that exact version in CI
-prevents silent breakage for users on slightly older toolchains.
+The minimum supported Rust version (MSRV) is the earliest toolchain on which
+the crate builds and gives satisfactory test results. Cargo Resolver v3 uses the MSRV to select
+dependency versions. A continuous integration (CI) job does the checks on that toolchain.
 
-## Choosing a rolling MSRV policy
+## MSRV policy
 
-Upstream Rust ships a new stable release **every 6 weeks** and **does not
-provide LTS branches or backport security fixes to older stable releases**—once
-a new stable version is released (e.g., `1.100.0`), the previous stable release
-(`1.99.x`) immediately reaches upstream end-of-life.
+Rust makes a stable release at six-week intervals. Rust does not maintain long-term
+support branches or add security fixes to previous stable releases. For
+example, when Rust publishes `1.100.0`, upstream support for `1.99.x` ends.
 
-Because of this, freezing an MSRV indefinitely leaves users on unpatched
-compilers while starving your codebase of standard-library and language
-improvements. Pick an explicit policy and document it in `README.md`:
+A fixed MSRV can keep users on compilers without security fixes. It also limits
+access to changes in the language and the standard library. Select a policy
+for your project. Record the policy in `README.md`.
 
-| Project type | Recommended MSRV policy | Example (when stable is `1.100`) |
-|--------------|-------------------------|----------------------------------|
-| **Applications / CLIs** | Latest stable or **N-2** (~3 months) | `"1.98"` – `"1.100"` |
-| **General libraries** | **N-4 rolling window** (~6 months) | `"1.96"` |
-| **Foundational / distro-packaged libraries** | Edition floor (`"1.85"` for Edition 2024) or target Linux distribution toolchain | `"1.85"` – `"1.92"` |
+| Project type | Recommended MSRV | Example when stable is `1.100` |
+|--------------|------------------|--------------------------------|
+| Applications and command-line tools | The latest stable release or two releases earlier (N-2, approximately three months) | `"1.98"` to `"1.100"` |
+| General libraries | Four releases before the latest stable release (N-4, approximately six months) | `"1.96"` |
+| Base libraries and libraries in Linux packages | The minimum for the Rust edition or the toolchain of the target Linux distribution | `"1.85"` to `"1.92"` |
 
-Declare your chosen floor in `Cargo.toml`:
+Set `rust-version` in `Cargo.toml`.
 
 ```toml
 [package]
@@ -30,63 +28,65 @@ edition = "2024"
 rust-version = "1.96"
 ```
 
-In workspaces, set `rust-version = "1.96"` in `[workspace.package]` and inherit
-it with `rust-version.workspace = true` in every crate.
+If you use a workspace, set `rust-version = "1.96"` in `[workspace.package]`.
+Set `rust-version.workspace = true` in each member crate.
 
-## How Cargo Resolver v3 prevents MSRV drift
+## How Cargo Resolver v3 uses the MSRV
 
-In **Edition 2024** (or whenever `resolver = "3"` is set on Rust 1.84+), Cargo's
-dependency resolver is **MSRV-aware by default**
-(`incompatible-rust-versions = "fallback"`):
+Cargo selects Resolver v3 by default if the root package uses Rust Edition 2024.
+In a virtual workspace, the editions of member crates do not set the resolver.
+For Resolver v3 in a virtual workspace, set `resolver = "3"` in `[workspace]`.
+To use Resolver v3, use Rust 1.84 or a newer version. Resolver v3 sets `incompatible-rust-versions`
+to `"fallback"` by default.
 
-- When you run `cargo add` or `cargo update`, Cargo inspects each candidate
-  dependency's `package.rust-version` metadata.
-- If the newest version of a dependency requires Rust `1.99` and your crate
-  declares `rust-version = "1.96"`, Cargo automatically selects the newest
-  compatible version that still supports `1.96` instead of breaking your MSRV
-  build.
-- Consequently, you rarely need brittle `<x.y` upper-bound version pins in
-  `Cargo.toml` just to protect MSRV. (To inspect the newest versions regardless
-  of MSRV when evaluating an MSRV bump, pass `cargo update --ignore-rust-version`
-  or check crate metadata with the built-in `cargo info <crate>` command.)
+When you use `cargo add` or `cargo update`, Cargo reads the
+`package.rust-version` value of each candidate dependency. For example, the latest dependency version can make Rust `1.99` necessary.
+For a crate with `rust-version = "1.96"`, Cargo usually selects the latest
+dependency version that supports `1.96`.
 
-### Resolver limits (why the CI gate is still required)
+To examine newer versions without the MSRV limit, use
+`cargo update --ignore-rust-version`. To read the metadata for a crate, use
+`cargo info <crate>`.
 
-Resolver v3's `fallback` policy is a **preference, not a hard filter**:
+### Resolver limits
 
-1. If *no* release matching your semver requirement supports your `rust-version`,
-   Cargo still selects a newer release rather than failing resolution.
-2. Workspace version/feature unification across crates with different MSRVs can
-   pull a newer shared version.
-3. Dependencies that omit `package.rust-version` cannot be filtered by the
-   resolver—if such a crate silently raises its MSRV, pin its upper bound with
-   a comment noting when the pin can be dropped.
+The `fallback` policy gives priority to versions that support the MSRV.
+The continuous integration (CI) check is necessary for these cases.
 
-## Verifying the MSRV locally
+1. No version in the permitted range supports the MSRV. Cargo can select a
+   version that cannot build with the MSRV.
+2. Workspace crates share a dependency version. The shared version can be incompatible
+   with the MSRV of one or more crates.
+3. A dependency has no `package.rust-version` value. Cargo cannot use the MSRV
+   to select a version of that dependency.
 
-Use [`cargo-msrv`](https://github.com/foresterre/cargo-msrv) (or
-`cargo hack check --rust-version` from [`cargo-hack`](https://github.com/taiki-e/cargo-hack))
-locally to verify that your crate compiles cleanly on the exact toolchain
-declared in `rust-version`:
+If a dependency becomes incompatible with the MSRV, set an upper version limit for that dependency.
+Add a comment that gives the condition for removal of the limit.
+
+## Local MSRV check
+
+Use [`cargo-msrv`](https://github.com/foresterre/cargo-msrv) to check the toolchain
+in `rust-version`. As an alternative, use `cargo hack check --rust-version`
+with [`cargo-hack`](https://github.com/taiki-e/cargo-hack).
 
 ```bash
 cargo msrv verify
-# Need to discover an unknown MSRV by bisecting toolchains? Run:
+# If you do not know the MSRV, use this command.
 # cargo msrv find
 ```
 
 ### In the `justfile`
 
 ```makefile
-# Verify the crate still builds on its declared MSRV (Cargo.toml's rust-version).
+# Check the toolchain in rust-version in Cargo.toml.
 msrv:
     cargo msrv verify
 ```
 
 ## Enforcing MSRV in CI
 
-CI runs the full test suite—not just `cargo check`—against the pinned MSRV
-toolchain with `--locked`:
+The CI job starts the full test suite on the toolchain in `rust-version`. It
+uses `--locked` to use the dependency versions in `Cargo.lock`.
 
 ```yaml
 jobs:
@@ -94,7 +94,7 @@ jobs:
     name: msrv (1.96)
     runs-on: ubuntu-latest
     env:
-      # Override any committed `rust-toolchain.toml` so cargo uses 1.96.
+      # Use Rust 1.96 instead of the version in rust-toolchain.toml.
       RUSTUP_TOOLCHAIN: "1.96"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -107,25 +107,29 @@ jobs:
       - run: cargo test --all-features --locked
 ```
 
-### Why run the full test suite instead of `cargo check`?
+### Full test suite
 
-- Standard-library behavior, `const` evaluation, or transitive crates without
-  an explicit `rust-version` field can still fail at link or test time on an
-  older compiler.
-- For published libraries, consider also checking direct lower bounds with
-  `cargo +nightly update -Z direct-minimal-versions` so minimum declared semver
-  bounds remain honest.
+`cargo check` does not link binaries or start tests. Standard library
+behavior, `const` evaluation, or a dependency with no `rust-version` can cause
+a failure during a build or test on the MSRV.
 
-## How to bump the MSRV
+For a published library, you can also check the lowest permitted versions of
+direct dependencies. Use `cargo +nightly update -Z direct-minimal-versions`
+before you build the library.
 
-1. Check whether raising MSRV falls within your documented rolling window (for
-   example, bumping `rust-version` to `N-4` in a minor release, not a patch
-   release).
-2. Update `rust-version` in `Cargo.toml`, the CI `msrv` job name/toolchain, and
-   `AGENTS.md` in a dedicated commit (`chore: bump MSRV to 1.96` or `feat:` per
-   your semver policy) so it stands out in `CHANGELOG.md`.
-3. Run `cargo update` afterward if newer MSRV-gated dependency versions were
-   previously held back by Resolver v3.
+## Increase the MSRV
+
+1. Make sure that the new MSRV agrees with the version policy. For example,
+   the policy can permit an increase to N-4 in a minor release only.
+2. Set `rust-version` in `Cargo.toml`.
+3. Put the new MSRV in the `msrv` job name.
+4. Set `env.RUSTUP_TOOLCHAIN` in the job to the new MSRV.
+5. Set the toolchain action's `with.toolchain` input to the new MSRV.
+6. Update `AGENTS.md`.
+7. If the previous MSRV limited dependency versions, use `cargo update`.
+8. Commit these changes together. If `Cargo.lock` changes, include it in the commit.
+   Use a commit title that agrees with your Semantic Versioning policy.
+   For example, use `chore: bump MSRV to 1.96`.
 
 ## Further reading
 

@@ -1,60 +1,57 @@
 # Rust
 
-Production Rust project setup — tooling, CI/CD, security, testing, release,
-and governance patterns that make the project credible to maintainers and
-defensible to enterprise and government adopters. The goal is evidence, not
-checkboxes: a user should be able to see how changes are controlled, how
-releases are produced, what is in them, and how the project responds when
-something goes wrong.
+These guides give instructions to configure a production Rust project. They
+show how to control changes and build releases. They show how to record
+what a release contains. They also give the procedure for security incidents.
 
-This is a practical pattern, not a claim of compliance. Map it to your
-organization's legal, contractual, and regulatory obligations. In particular,
-US federal consumers commonly assess suppliers against the [NIST Secure
-Software Development Framework (SSDF)](https://doi.org/10.6028/NIST.SP.800-218),
-and commercial products placed on the EU market face mandatory obligations
-under the [EU Cyber Resilience Act (CRA)](https://eur-lex.europa.eu/eli/reg/2024/2847/oj).
+Compare these procedures with the legal, contractual, and regulatory
+requirements for your organization. US federal buyers commonly use the
+[NIST Secure Software Development Framework (SSDF)](https://doi.org/10.6028/NIST.SP.800-218)
+to examine supplier practices. The
+[EU Cyber Resilience Act (CRA)](https://eur-lex.europa.eu/eli/reg/2024/2847/oj)
+specifies requirements for commercial products on the EU market. Use these
+guides as examples. Do a compliance assessment for the applicable requirements.
 
 ## Contents
 
-- [Enterprise readiness guide](enterprise-readiness.md) — maturity model,
-  adopter evidence, ownership, regulatory posture, and a retrofit sequence
-- [Secure development lifecycle](secure-development.md) — threat modeling,
-  secure defaults, ANSSI & Edition 2024 safety rules, testing, and SSDF mapping
-- [Project scaffolding](scaffolding.md) — `Cargo.toml` setup, Edition 2024,
-  `rust-toolchain.toml`, rolling MSRV, `[lints]`, and `unsafe_code = "forbid"`
-- [Code quality gates](code-quality.md) — `rustfmt`, `clippy` (`#[expect]`),
-  `rustdoc` checks, and `cargo-semver-checks`
-- [Testing strategy](testing.md) — unit, integration, doctests, `cargo-nextest`,
-  property-based testing, mutation testing (`cargo-mutants`), and Miri/Kani
-- [Supply chain security](supply-chain.md) — `cargo-deny`, `cargo-vet`,
-  `cargo-audit`, and dependency trust
-- [Security scanning](security-scanning.md) — Trivy, Push Protection, `zizmor`
-  workflow analysis, and `unsafe` tracking (`cargo-geiger` / `cargo-issafe`)
-- [MSRV management](msrv.md) — rolling MSRV policy, Cargo Resolver v3,
-  verification, and CI enforcement
-- [CI/CD pipeline](ci-cd.md) — GitHub Actions matrix builds, SHA-pinned actions,
-  separate job design, and `zizmor` verification
-- [Release automation](releases.md) — Rust-native `release-plz`, Conventional
-  Commits, crates.io OIDC Trusted Publishing, SBOMs, and provenance attestations
-- [Dependency management](dependencies.md) — Dependabot groups & cooldowns,
-  Cargo `global-min-publish-age`, lockfile policy, and dependency hygiene
-- [Local development](local-dev.md) — `justfile`, `AGENTS.md` / `CLAUDE.md`,
-  `cargo-binstall`, `CONTRIBUTING.md`, and the developer experience
-- [Security policy](security-policy.md) — `SECURITY.md`, private vulnerability
-  reporting, EU CRA timelines, and coordinated RustSec disclosure
-- [Project governance](governance.md) — `GOVERNANCE.md`, Contributor Covenant
-  v3.0, dual licensing, crates.io team ownership, and rulesets
+- [Enterprise readiness guide](enterprise-readiness.md) — Project controls, owners, and records for adopters
+- [Secure development lifecycle](secure-development.md) — Threat models, secure defaults, Rust safety checks, and SSDF
+- [Project configuration](scaffolding.md) — Cargo metadata, Rust edition, toolchain, and lints
+- [Code quality checks](code-quality.md) — Format, lint, documentation, and API compatibility checks
+- [Testing strategy](testing.md) — Test types, test tools, and tests for `unsafe` code
+- [Supply chain security](supply-chain.md) — Dependency checks with `cargo-deny`, `cargo-vet`, and `cargo-audit`
+- [Security scanning](security-scanning.md) — Scans for secrets, vulnerabilities, workflow errors, and `unsafe` code
+- [Minimum supported Rust version](msrv.md) — Version policy, Cargo Resolver v3, and CI checks
+- [CI/CD pipeline](ci-cd.md) — GitHub Actions jobs, test platforms, and action versions
+- [Release automation](releases.md) — Release pull requests, Trusted Publishing, and release verification
+- [Dependency management](dependencies.md) — Dependabot, minimum publication age, and the lockfile
+- [Local development](local-dev.md) — Tool installation, `justfile`, and contributor instructions
+- [Security policy](security-policy.md) — Private vulnerability reports, response times, and RustSec advisories
+- [Project governance](governance.md) — Roles, licenses, repository rules, and the code of conduct
 
-## The non-negotiable release baseline
+## Minimum release requirements
 
-Before asking a risk-conscious organization to run a release, make sure it
-has a supported-version policy, private vulnerability reporting, protected
-default branch, reviewed and SHA-pinned CI inputs, a committed lockfile,
-dependency/license/advisory policy with cooldown gates, crates.io OIDC Trusted
-Publishing (where published), a published SBOM meeting CISA 2026 minimum
-elements, release provenance attestations, checksums, and a documented way to
-verify them. The enterprise guide explains the evidence each control should
-produce.
+Before you give a release to an organization, make sure that the project has
+these controls.
+
+- Publish a policy that identifies the supported versions.
+- Give a private channel for vulnerability reports.
+- Enable branch protection for the default branch.
+- Review the inputs that continuous integration (CI) uses.
+- Pin GitHub Actions to full commit SHAs.
+- Commit the lockfile.
+- Set rules for dependencies, licenses, advisories, and minimum publication age.
+- If you publish to crates.io, use OIDC Trusted Publishing.
+
+Give these files and instructions with the release.
+
+- Publish a software bill of materials (SBOM) with the minimum elements that CISA specifies for 2026.
+- Publish build provenance attestations.
+- Publish checksums.
+- Give adopters the commands to check the release files.
+
+For a list of the records for each control, refer to the
+[enterprise readiness guide](enterprise-readiness.md).
 
 ## Source documents
 

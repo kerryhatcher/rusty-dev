@@ -1,15 +1,13 @@
 # Dependency Management
 
-Dependencies are the largest external risk surface in a Rust project. Managing
-them proactively—with automated grouping, release-age cooldowns, MSRV-aware
-resolution, and minimal feature sets—keeps the dependency tree small,
-auditable, and resilient against supply-chain compromises.
+Each dependency can add a security risk. Use Dependabot to group updates and
+set a minimum publication age. Use Cargo to select versions that support the
+minimum supported Rust version (MSRV). Enable only the necessary features.
 
-## Dependabot with grouping and cooldowns
+## Dependabot groups and minimum publication age
 
-[Dependabot](https://docs.github.com/en/code-security/dependabot) automates
-dependency updates by opening pull requests when newer versions pass your
-configured policy:
+[Dependabot](https://docs.github.com/en/code-security/dependabot) opens pull
+requests for updates that meet the dependency policy.
 
 ```yaml
 # .github/dependabot.yml
@@ -20,7 +18,7 @@ updates:
     schedule:
       interval: "weekly"
     commit-message:
-      prefix: "chore" # "chore(deps): bump …"; no release with `release_commits`
+      prefix: "chore" # release_commits excludes titles such as "chore(deps): bump …".
       include: "scope"
     cooldown:
       default-days: 7
@@ -48,35 +46,29 @@ updates:
           - "*"
 ```
 
-### Why `groups:` and `cooldown:` both matter
+### Purposes of `groups:` and `cooldown:`
 
-- **True batching requires `groups:`** — `interval: "weekly"` alone still opens
-  *one separate PR per outdated crate* every week. Configuring `groups:`
-  combines routine minor/patch updates into a single weekly PR while keeping
-  major semver bumps isolated for focused review.
-- **Supply-chain cooldown (`cooldown:`)** — "publish-and-pounce" attacks rely
-  on automated bots ingesting malicious releases within hours of publication,
-  before community detection and registry takedown. A 3-to-7 day cooldown lets
-  routine releases age safely while **security advisory updates bypass the
-  cooldown automatically**.
+- With only `interval: "weekly"`, Dependabot opens a different pull request for
+  each outdated crate. Use `groups:` to put minor and patch updates in one
+  weekly pull request. Review major updates in different pull requests.
+- Use `cooldown:` to give reviewers time to find malicious releases before
+  Dependabot selects them. An interval of three to seven days is an example.
+  Security advisory updates can ignore this interval automatically.
 
-### What Dependabot covers (and does not)
+### Updates that Dependabot can make
 
-- **Routine version updates** — updates explicitly declared dependencies in
-  `Cargo.toml` (and `Cargo.lock`) plus SHA-pinned GitHub Actions (updating both
-  the commit SHA and its `# vX.Y.Z` comment).
-- **Security updates** — opens immediate PRs (bypassing cooldown) for vulnerable
-  dependencies, including lockfile-only transitive crates.
-- **Not covered** — `rust-toolchain.toml` is not updated by Dependabot; bump it
-  deliberately or use [Renovate](https://docs.renovatebot.com/) if you want
-  automated toolchain PRs.
+- Dependabot updates dependencies in `Cargo.toml` and `Cargo.lock`.
+  For GitHub Actions, it updates the commit SHA and the version comment.
+- Dependabot opens security update pull requests immediately. This also
+  applies to transitive dependencies that appear only in `Cargo.lock`.
+- Dependabot does not update `rust-toolchain.toml`. To update this file
+  automatically, use [Renovate](https://docs.renovatebot.com/).
 
-## Native Cargo publish-age cooldown (Rust 1.100+)
+## Cargo minimum publication age (Rust 1.100 or later)
 
-Dependabot cooldowns do not stop a developer's manual `cargo update` or newly
-resolved transitive dependencies from pulling a brand-new release published
-minutes ago. Enforce a matching minimum publish age natively in Cargo
-(`.cargo/config.toml`, stabilized in Cargo 1.100):
+Dependabot's minimum publication age applies to Dependabot only. A manual
+`cargo update` or a new transitive dependency can select a recent release.
+Set the same minimum age in `.cargo/config.toml`. Cargo 1.100 added this option.
 
 ```toml
 # .cargo/config.toml
@@ -84,12 +76,20 @@ minutes ago. Enforce a matching minimum publish age natively in Cargo
 global-min-publish-age = "7 days"
 ```
 
-When an emergency security patch was published within the window, update that
-specific package deliberately after verifying the advisory.
+If a necessary security patch is newer than the minimum age, examine the advisory.
+Then use this command to select the patch.
 
-## Version specification strategies
+```bash
+CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE=allow cargo update -p '<crate>' --precise '<version>'
+```
 
-### Prefer standard semver ranges (avoid `<x.y` upper bounds)
+Replace `<crate>` and `<version>` with the crate name and patch version.
+The override applies to all versions that Cargo selects for this command.
+Examine new transitive versions in the `Cargo.lock` diff.
+
+## Version requirements
+
+### Standard Semantic Versioning ranges
 
 ```toml
 [dependencies]
@@ -98,84 +98,73 @@ serde_json = { version = "1", features = ["preserve_order"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 ```
 
-Standard Cargo semver ranges (`"1"`, `"0.8"`) accept non-breaking minor and
-patch updates while automatically excluding the next breaking major version.
+Standard Cargo ranges such as `"1"` and `"0.8"` permit compatible updates.
+They exclude the next incompatible version.
 
-Avoid restrictive minor upper bounds like `">=1.1, <1.2"` in published
-libraries:
+- Use standard ranges in published libraries. Cargo Resolver v3 gives priority
+  to dependencies that support `package.rust-version`.
+- Use a minor-version upper limit such as `<1.2` only for a known defect or missing MSRV metadata.
+  Record why the limit is necessary. An upper limit can prevent a user from
+  using one dependency version or getting a security fix.
+- Set the lowest version that has the APIs your library uses. For example,
+  if an API first appears in Serde 1.0.200, set `"1.0.200"`.
+- To check the lower limits for direct dependencies, use
+  `cargo +nightly update -Z direct-minimal-versions`. Then build the library.
 
-- **Edition 2024 (`resolver = "3"`) is already MSRV-aware** — Cargo's resolver
-  checks `package.rust-version` across the dependency graph and automatically
-  falls back to MSRV-compatible versions during `cargo update` rather than
-  breaking older toolchains.
-- **Upper bounds fragment downstream trees** — pinning `<1.2` in a library
-  prevents downstream applications from unifying dependency versions or picking
-  up `1.2.x` security fixes. Add an upper-bound pin only for a concrete known
-  defect or missing upstream `rust-version` metadata, and document the reason
-  beside the pin.
-- **Set honest lower bounds in libraries** — if you rely on an API added in
-  `serde 1.0.200`, declare `"1.0.200"`, not `"1"`. Verify direct lower bounds
-  with `cargo +nightly update -Z direct-minimal-versions` followed by a check
-  build.
+## Dependency maintenance
 
-## Dependency hygiene
+### Unused dependencies
 
-### Keep the tree small and prune unused crates
+Each dependency adds code to compile and review. It can also add
+vulnerabilities or `unsafe` code.
 
-Every dependency adds CVE exposure, maintainer trust surface, compile time, and
-`unsafe` blocks. Two guardrails keep the graph lean:
+1. If 30 to 50 lines of standard library code are sufficient, write the function in the crate.
+2. Examine the dependency tree with `cargo tree`.
+3. Examine duplicate versions with `cargo tree -d`.
+4. Set `unused_crate_dependencies = "warn"` in `[lints.rust]`.
 
-1. **Write trivial helpers inline** — if a utility takes 30–50 lines of safe
-   standard-library Rust, write it directly instead of importing a micro-crate
-   and its transitive dependencies. Inspect transitive weight and duplicate
-   versions with `cargo tree` and `cargo tree -d`.
-2. **Enable `unused_crate_dependencies = "warn"`** in `[lints.rust]` (backed by
-   Cargo 1.100's unused-dependency diagnostics, or `cargo-machete` across complex
-   multi-target workspaces) so refactored-away dependencies cannot linger in
+Cargo 1.100 gives diagnostics for unused dependencies. You can also use
+`cargo-machete` for workspaces with multiple targets.
    `Cargo.toml`.
 
-### Disable default features and prefer pure-Rust backends
+### Default features and pure-Rust backends
 
 ```toml
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 ```
 
-Disabling default features strips unneeded optional dependencies, and choosing
-pure-Rust/memory-safe backends (`miniz_oxide` instead of `libz-sys`, `rustls`
-instead of `openssl-sys`) eliminates C build toolchains, simplifies
-cross-compilation, and shrinks the `unsafe` FFI surface.
+If only some features are necessary, disable the default features.
+When possible, use a pure-Rust backend such as `miniz_oxide` or `rustls`.
+You can then build without a C toolchain. It can also decrease the amount
+of `unsafe` code at the foreign function interface (FFI).
 
-### Justify every addition
+### New dependencies
 
-Every PR adding a new dependency should state in its commit message or PR
-description why existing dependencies or `std` are insufficient, its license,
-its maintenance posture, and its `cargo vet` disposition.
+If you add a dependency, show why it is necessary in the commit message or pull request.
+Give the license, maintenance status, and `cargo vet` audit or exemption status.
 
 ## Lockfile management
 
-### Commit `Cargo.lock` for applications—and usually libraries too
+### When to commit `Cargo.lock`
 
-- **Applications, CLIs, and services:** Always commit `Cargo.lock` and pass
-  `--locked` in CI and release builds so every build is deterministic.
-- **Libraries:** Modern Cargo (`cargo new --lib` since Rust 1.75) **no longer
-  adds `Cargo.lock` to `.gitignore` by default**. Committing `Cargo.lock` in a
-  library repository gives contributors deterministic CI, reliable MSRV checks,
-  and working `git bisect`. Downstream consumers of your library on crates.io
-  are unaffected—Cargo always ignores a dependency's `Cargo.lock` and resolves
-  against `Cargo.toml`.
-- **Catching upstream breakage in libraries:** If you commit `Cargo.lock` in a
-  library, add a non-blocking scheduled CI job on `stable` that runs
-  `CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=allow cargo update` followed by
-  `cargo test` so you get early warning if a brand-new upstream release (even
-  one above your MSRV floor) breaks compatibility.
+- For an application, command-line tool, or service, commit `Cargo.lock`.
+  Use `--locked` in CI and release builds.
+- For a library, usually commit `Cargo.lock`. This gives CI and MSRV checks a
+  fixed set of dependency versions. It also supports `git bisect`. Cargo
+  `new --lib` no longer adds the lockfile to `.gitignore` as of Rust 1.75.
+- Cargo uses the dependencies' `Cargo.toml` files to select versions for users
+  of a published library. It ignores the dependencies' lockfiles.
+- If you commit a library lockfile, add a scheduled, non-blocking CI job on `stable`.
+  Use `CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=allow cargo update` in that job.
+  Then start the tests with `cargo test`. The job can identify compatibility
+  problems with new dependencies, including versions above the library's MSRV.
 
-### `cargo update` discipline
+### Updates to `Cargo.lock`
 
-- Run `cargo update` deliberately (or review grouped Dependabot PRs).
-- Inspect `Cargo.lock` diffs (`cargo vet diff` or `git diff Cargo.lock`) to see
-  added or upgraded transitive crates.
-- Run `just ci` after every lockfile change.
+1. Use `cargo update` when you plan an update, or review a grouped Dependabot pull request.
+2. Examine the changes in `Cargo.lock` with `cargo vet diff` or `git diff Cargo.lock`.
+3. Start the checks with `just ci` after each lockfile change.
 
 ## Further reading
 
