@@ -69,7 +69,11 @@ The simplest reliable setup has three parts:
 1. **Squash-merge only, using the PR title as the whole commit message.** Then
    every commit on `main` is exactly one PR title, and the title is the only
    message to check. Contributors can write whatever they like on their
-   branches.
+   branches, with one exception: a skip marker such as `[skip ci]` in the
+   branch's latest commit makes GitHub skip `pull_request` workflows too, so
+   the required `pr-title` check never reports. Pushing a commit without the
+   marker re-runs it. (Moving the check to `pull_request_target` would avoid
+   this, but `zizmor` flags that trigger as dangerous.)
 
    ```bash
    gh api -X PATCH repos/OWNER/REPO \

@@ -1,0 +1,40 @@
+name: PR title
+
+on:
+  pull_request:
+    # `edited` re-runs the check when the title changes; `synchronize` keeps
+    # the required check attached to the latest commit.
+    types: [opened, edited, reopened, synchronize]
+  # Required checks must also report on merge queue runs. The title was
+  # already validated on the PR, so the job passes without a check there.
+  # This is only safe with the queue's "Only merge non-failing pull
+  # requests" setting enabled (see releases.md, "Enforcing the convention").
+  merge_group:
+
+permissions: {}
+
+jobs:
+  pr-title:
+    name: pr-title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR title follows Conventional Commits
+        if: github.event_name == 'pull_request'
+        env:
+          # Pass the title through an environment variable, never inline
+          # `${{ }}` in the script, so a crafted title cannot inject shell.
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          spec='See https://www.conventionalcommits.org/en/v1.0.0/'
+          pattern='^(feat|fix|docs|chore|ci|refactor|test)(\([A-Za-z0-9._/-]+\))?!?: [^[:space:]].*$'
+          if [[ ! "$TITLE" =~ $pattern ]]; then
+            echo "::error title=PR title is not a Conventional Commit::Use '<type>[(scope)][!]: <description>', e.g. 'feat(cli): add --json output'. $spec"
+            exit 1
+          fi
+          # The title becomes the commit on main; a skip marker there would
+          # stop CI and the release workflow from running for that commit.
+          skip='\[(skip ci|ci skip|no ci|skip actions|actions skip)\]'
+          if [[ "${TITLE,,}" =~ $skip ]]; then
+            echo "::error title=PR title contains a workflow skip marker::Remove it; it would skip CI and releases on main."
+            exit 1
+          fi
