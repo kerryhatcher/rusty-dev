@@ -1,106 +1,99 @@
 # Secure Development Lifecycle
 
-Secure development is a repeatable loop of design decisions, compiler-enforced
-invariants, adversarial tests, and verifiable records—not a scanner run the day
-before a release. This guide adapts the **NIST SSDF (SP 800-218)** and the
-**ANSSI Secure Rust Guidelines** to modern Edition 2024 Rust projects.
+Use security controls from design through release and maintenance. Keep
+design decisions, test results, and release records. This guide uses the
+**NIST SSDF (SP 800-218)** and the **ANSSI Secure Rust Guidelines** for
+Edition 2024 Rust projects.
 
-## Secure-by-design principles for Rust
+## Secure design for Rust
 
-- **Start from a threat model.** Identify assets, trust boundaries, attacker
-  capabilities, untrusted entry points, privilege transitions, dependencies, and
-  resource-exhaustion vectors before writing code. Update the threat model when
-  architecture, protocols, or deployment boundaries change.
-- **Choose safe defaults.** Require explicit opt-in for network listeners,
-  destructive filesystem writes, telemetry, weak algorithms, and elevated
-  privileges. Fail closed on authentication, authorization, and validation.
-- **Minimize authority and attack surface.** Keep OS privileges, public APIs,
-  enabled Cargo features, dependencies, and data retention minimal. For
-  filesystem isolation, prefer capability-oriented APIs such as
-  [`cap-std`](https://docs.rs/cap-std) (`Dir` handles backed by `openat2` /
-  `O_RESOLVE_BENEATH`) over manual string path sanitization to eliminate path
-  traversal and symlink TOCTOU races structurally.
-- **Treat all external input as hostile.** Bound payload sizes, allocation
-  capacities, recursion depth, decompression ratios, timeouts, and concurrency
-  before parsing. Never call `unwrap`, `expect`, or unchecked slice indexing on
-  untrusted input.
-- **Handle integer arithmetic deliberately.** In Rust, standard `+`, `-`, and
-  `*` operators panic on overflow in `debug` builds but **silently wrap in
-  `--release` builds** by default. Per ANSSI guidance, use `.checked_*()`,
-  `.saturating_*()`, or `TryFrom` conversions on security-sensitive sizes,
-  offsets, and quotas—or set `overflow-checks = true` in `[profile.release]`
-  where panic/abort is preferable to silent wraparound.
-- **Constrain `unsafe` with Edition 2024 rules.** Default to
-  `unsafe_code = "forbid"` in `[lints.rust]`. Where `unsafe` or FFI is
-  unavoidable, encapsulate it behind a narrow safe module, keep Edition 2024's
-  `unsafe_op_in_unsafe_fn`, `unsafe extern`, and `#[unsafe(...)]` checks active,
-  and enforce `clippy::undocumented_unsafe_blocks = "deny"`.
-- **Use vetted cryptography and secret hygiene.** Never roll custom primitives
-  or TLS stacks. Prefer memory-safe stacks such as [`rustls`](https://docs.rs/rustls)
-  (backed by `aws-lc-rs` or `ring`), clear secret key material on drop with
-  [`zeroize`](https://docs.rs/zeroize) / [`secrecy`](https://docs.rs/secrecy),
-  and compare digests/tokens in constant time using [`subtle`](https://docs.rs/subtle).
-- **Govern AI-assisted code identically to human code.** Per **NIST SP 800-218A**,
-  code generated or refactored by AI assistants must pass human peer review,
-  threat-model checks, license/provenance rules, and the full CI security gate.
+- Before you write code, make a threat model. Identify assets, trust
+  boundaries, attacker capabilities, and entry points for untrusted input.
+  Identify privilege changes, dependencies, and resource exhaustion risks.
+  Update the threat model when the architecture, protocols, or deployment boundaries change.
+- Make network listeners, destructive file operations, telemetry, weak
+  algorithms, and elevated privileges opt-in. Fail closed if authentication,
+  authorization, or validation fails.
+- Limit operating system privileges, public APIs, enabled features,
+  dependencies, and data retention. For filesystem isolation, use a
+  capability API such as [`cap-std`](https://docs.rs/cap-std) when possible.
+  Its `Dir` handles use facilities such as `openat2` or `O_RESOLVE_BENEATH`.
+  A capability API can prevent path traversal and races during symlink resolution
+  without manual checks of path strings.
+- Set limits before you parse external input. Limit payload size, allocation,
+  recursion depth, decompression ratio, timeouts, and concurrency. Do not use
+  `unwrap`, `expect`, or unchecked slice indexing on untrusted input.
+- Check integer arithmetic. By default, `+`, `-`, and `*` panic on overflow
+  in debug builds. In release builds, the value wraps. Use `.checked_*()`,
+  `.saturating_*()`, or `TryFrom` for security-sensitive sizes, offsets, and quotas.
+  If a panic or abort is safer than wraparound, set `overflow-checks = true` in `[profile.release]`.
+- Set `unsafe_code = "forbid"` in `[lints.rust]`. If `unsafe` or a foreign
+  function interface (FFI) is necessary, put it in a module with a small safe interface.
+  Keep the Edition 2024 checks for `unsafe_op_in_unsafe_fn`, `unsafe extern`,
+  and `#[unsafe(...)]` active. Set `clippy::undocumented_unsafe_blocks = "deny"`.
+- Use reviewed cryptographic libraries. Do not write new cryptographic
+  primitives or TLS implementations. Prefer a memory-safe TLS library such as
+  [`rustls`](https://docs.rs/rustls) with `aws-lc-rs` or `ring`. Clear key
+  material on drop with [`zeroize`](https://docs.rs/zeroize) or
+  [`secrecy`](https://docs.rs/secrecy). Compare digests and tokens in
+  constant time with [`subtle`](https://docs.rs/subtle).
+- Apply the same controls to code from coding agents and persons. Use human
+  peer review, threat model checks, license and provenance checks, and CI
+  security checks. Refer to NIST SP 800-218A.
 
-## Required engineering loop
+## Development and release checks
 
-| When | Required activity | Evidence |
+| When | Actions | Records |
 | --- | --- | --- |
-| Design or major change | Threat model and security requirements; review trust boundaries and resource limits | ADR/design doc, issue, or `docs/security/threat-model.md` |
-| Every change | Independent peer review; formatting, Clippy (`#[expect]`), tests, locked dependencies | Pull request, CI checks, review record |
-| Boundary-sensitive change | Negative tests, `proptest` invariants, and `cargo-fuzz` targets for parsers/decoders | Tests, fuzz corpus, scheduled fuzz CI |
-| `unsafe` / FFI change | CODEOWNER review, `// SAFETY:` proof comment, Miri / sanitizer / Kani verification | Review approval, Miri/Kani job log |
-| Dependency or workflow change | License/source/advisory check, cooldown check, `cargo vet` update, `zizmor` check | PR rationale, `deny.toml`, `supply-chain/` |
-| Release | Clean `--locked` `cargo-auditable` build, OIDC publish, CISA-compliant SBOM, SHA-256 hashes, SLSA provenance | Protected release workflow & release assets |
-| Incident or escaped defect | Triage, patch, coordinated GitHub + RustSec advisory, blameless root-cause fix | Advisory record and regression test |
+| Design or major change | Make a threat model. Review trust boundaries and resource limits. | Architecture decision record, issue, or `docs/security/threat-model.md` |
+| Each change | Get an independent review. Check the format, Clippy lints, tests, and locked dependencies. | Pull request, CI results, and review record |
+| Change to a trust boundary | Add negative tests and `proptest` checks. Add `cargo-fuzz` targets for parsers and decoders. | Tests, fuzz corpus, and scheduled fuzz tests |
+| `unsafe` or FFI change | Get Code Owner review. Document the invariant in a `// SAFETY:` comment. Use Miri, sanitizers, or Kani. | Review approval and job log |
+| Dependency or workflow change | Examine licenses, sources, advisories, and minimum publication age. Update the audit records. Check workflows with `zizmor`. | Pull request, `deny.toml`, and `supply-chain/` |
+| Release | Build with `cargo-auditable` and `--locked`. Publish with OIDC. Add an SBOM, SHA-256 checksums, and SLSA provenance. | Protected release workflow and release files |
+| Incident or defect | Assess the defect. Correct the cause. Coordinate disclosure with GitHub and RustSec. | Advisory and regression test |
 
-## Testing security properties
+## Tests for security properties
 
-Match the verification technique to the failure mode:
+Select the test method for the type of failure.
 
-- **Property testing (`proptest`)** — verify invariants across randomized inputs:
-  parsers never panic, serializers round-trip, quotas never overflow, and access
-  checks fail closed.
-- **Coverage-guided fuzzing (`cargo-fuzz` / `libFuzzer`)** — mandatory for binary
-  formats, network protocol frames, archive extractors, and FFI boundaries. Run
-  fuzzing continuously (e.g., OSS-Fuzz or scheduled CI budgets) and retain seed
-  corpora in Git.
-- **Mutation testing (`cargo-mutants`)** — verify that deleting authorization
-  checks, boundary guards, or error branches causes tests to fail.
-- **Undefined behavior & formal verification (`Miri`, Sanitizers, and `Kani`)** —
-  run `cargo +nightly miri test` to catch pointer provenance and aliasing UB in
-  `unsafe` Rust, LLVM sanitizers (`ASAN`/`TSAN`/`UBSAN`) across C/FFI boundaries,
-  and [`kani`](https://model-checking.github.io/kani/) bounded model checking to
-  mathematically prove absence of panics/UB in critical state machines.
+- Use `proptest` to check invariants with random inputs. Make sure that
+  parsers do not panic and that serialization preserves data. Check for quota
+  overflow and make sure that access checks fail closed.
+- Use coverage-guided fuzzing for binary formats, network frames, archive
+  extractors, and foreign function interfaces. Use `cargo-fuzz` with
+  `libFuzzer`. Schedule the tests in CI or use OSS-Fuzz. Keep the initial
+  test inputs in Git.
+- Use `cargo-mutants` to check that the suite finds missing authorization
+  checks, boundary checks, and error branches.
+- Use `cargo +nightly miri test` to find aliasing and pointer provenance
+  defects in `unsafe` Rust. Use LLVM sanitizers (`ASAN`, `TSAN`, and `UBSAN`)
+  at C interfaces. Use [Kani](https://model-checking.github.io/kani/) to check
+  for panics and undefined behavior in critical state machines that the model covers.
 
 ## Rust-specific policy decisions
 
-Record these explicitly in repository documentation rather than leaving them
-implicit:
+Record the values and conditions for these policies in the repository documentation.
 
-| Topic | Policy to record |
+| Topic | Policy |
 | --- | --- |
-| `unsafe` | Forbidden globally or restricted to named modules; CODEOWNER requirement; `// SAFETY:` invariant + Miri expectations |
-| FFI / native code | Allowed Tier-1 targets, pure-Rust preference (`rustls`, `miniz_oxide`), C compiler flags, ABI validation, CVE ownership |
-| Arithmetic & panics | Overflow policy (`checked_*` / `[profile.release] overflow-checks`), non-panicking untrusted input rule, `panic = "abort"` vs unwind |
-| Features | Minimal default features, security impact of optional features, feature-combination CI coverage |
-| Network and files | Mandatory timeouts, payload caps, TLS 1.2+/1.3 policy (`rustls`), `cap-std` directory confinement, secret redaction in logs |
-| Dependencies | Approved registries (`crates.io`), cooldown window (`global-min-publish-age`), rolling MSRV rule, `cargo vet` exemption expiry |
+| `unsafe` | Locations that can use `unsafe`, Code Owner review, `// SAFETY:` comments, and Miri checks |
+| Foreign function interface (FFI) | Tier 1 targets, pure-Rust alternatives (such as `rustls` and `miniz_oxide`), C compiler flags, ABI checks, and CVE ownership |
+| Arithmetic and panics | Overflow checks, for example `checked_*` or `[profile.release] overflow-checks`. Rules for untrusted input and the choice of panic abort or unwind. |
+| Features | Necessary default features, security effects of optional features, and feature combinations for CI |
+| Network and files | Timeouts, payload limits, TLS 1.2 and 1.3 policy (`rustls`), directory access with `cap-std`, and removal of secrets from logs |
+| Dependencies | Permitted registries, minimum publication age, rolling MSRV, and `cargo vet` exemption expiration dates |
 
 ## SSDF crosswalk
 
-The NIST SSDF organizes outcomes into Prepare the Organization (**PO**), Protect
-the Software (**PS**), Produce Well-Secured Software (**PW**), and Respond to
-Vulnerabilities (**RV**):
+The NIST SSDF has four groups. The table shows controls for each group.
 
-| SSDF outcome | Rust project implementation |
+| SSDF group | Controls for a Rust project |
 | --- | --- |
-| **PO**: defined secure-development requirements, roles, and tooling | `GOVERNANCE.md`, `SECURITY.md`, `AGENTS.md`, CODEOWNERS, threat model, documented lint/MSRV/`unsafe` policies |
-| **PS**: protected repositories, credentials, and build pipelines | Rulesets, MFA, Push Protection, SHA-pinned actions, `zizmor`, read-only default tokens, crates.io OIDC Trusted Publishing |
-| **PW**: secure design, implementation, verification, and release | Safe defaults, Edition 2024 + Clippy gates, `proptest`/`cargo-fuzz`/Miri/Kani, `cargo-deny`, `cargo-vet`, cooldowns, `cargo-auditable`, SBOM, SLSA provenance |
-| **RV**: identify, triage, remediate, and learn from vulnerabilities | Private reporting, EU CRA / SLA timelines, scheduled advisory scans, `cargo audit bin`, coordinated RustSec disclosure, regression tests |
+| **Prepare the Organization (PO)** | Roles and procedures in `GOVERNANCE.md`, `SECURITY.md`, `AGENTS.md`, and `CODEOWNERS`. Threat model, lints, MSRV, and `unsafe` policy. |
+| **Protect the Software (PS)** | Rulesets, multi-factor authentication, Push Protection, full commit SHAs for actions, `zizmor`, read-only tokens, and crates.io OIDC Trusted Publishing |
+| **Produce Well-Secured Software (PW)** | Safe defaults, Edition 2024, Clippy, `proptest`, `cargo-fuzz`, Miri, and Kani. Dependency audits, minimum publication age, `cargo-auditable`, an SBOM, and SLSA provenance. |
+| **Respond to Vulnerabilities (RV)** | Private reports, CRA and service-level deadlines, scheduled scans, `cargo audit bin`, RustSec disclosure, and regression tests |
 
 ## Source documents
 

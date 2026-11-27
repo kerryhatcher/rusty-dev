@@ -1,10 +1,9 @@
-# Project Scaffolding
+# Project Configuration
 
-A Rust project's `Cargo.toml` is its identity document. Getting the metadata,
-edition, lints, and constraints right on day one avoids a cascade of fixes
-later.
+`Cargo.toml` records the crate metadata, Rust edition, lints, and requirements
+for dependencies. Set these values when you create the crate.
 
-## The `Cargo.toml` skeleton
+## The `Cargo.toml` template
 
 ```toml
 [package]
@@ -25,18 +24,18 @@ exclude = ["docs/", "assets/", ".github/", "justfile"]
 
 | Field | Purpose |
 |-------|---------|
-| `edition` | Use `"2024"` (stabilized in Rust 1.85). Enables Cargo Resolver v3 (MSRV-aware dependency resolution), `rustfmt` 2024 style defaults, `unsafe_op_in_unsafe_fn` warnings, `unsafe extern` blocks, and `#[unsafe(...)]` attributes. |
-| `rust-version` | The **minimum supported Rust version** (MSRV). Declare a deliberate rolling floor (e.g., N-4 / ~6 months behind current stable `1.100`, such as `"1.96"`) so Cargo's resolver and CI enforce it. See [MSRV Management](msrv.md). |
-| `license` | Use `"MIT OR Apache-2.0"` — the standard dual-license in the Rust ecosystem. Required (along with `description`) for `cargo publish`. See [licensing](#licensing). |
-| `repository` | Link to the source. `cargo publish` warns if none of `repository`, `homepage`, or `documentation` is set, and crates.io provenance links expect it. |
-| `keywords` / `categories` | Help people discover the crate on crates.io (up to 5 each). Keep them accurate. |
-| `exclude` | Repo-only files to omit from the published `.crate` tarball. Inspect the final file list with `cargo package --list`. |
+| `edition` | Set the value to `"2024"`. Rust 1.85 added support for this edition. It enables Cargo Resolver v3 and the 2024 format defaults. It also enables `unsafe_op_in_unsafe_fn` warnings, `unsafe extern` blocks, and `#[unsafe(...)]` attributes. |
+| `rust-version` | Set the minimum supported Rust version (MSRV). For example, set `"1.96"` for an N-4 policy when stable is `1.100`. Cargo Resolver v3 and CI use this value. Refer to the [MSRV guide](msrv.md). |
+| `license` | Set the value to `"MIT OR Apache-2.0"`. For `cargo publish`, a license and a description are necessary. Refer to [Licensing](#licensing). |
+| `repository` | Set the URL of the source repository. `cargo publish` gives a warning when `repository`, `homepage`, and `documentation` are all absent. Crates.io uses the URL for provenance links. |
+| `keywords` and `categories` | Specify applicable values to help users find the crate on crates.io. Each field can contain up to five values. |
+| `exclude` | Specify the files that Cargo must omit from the `.crate` archive. Use `cargo package --list` to examine the file list. |
 
 ## Toolchain pinning (`rust-toolchain.toml`)
 
-While `rust-version` declares the *oldest* compiler your crate supports (MSRV),
-pinning a day-to-day toolchain in `rust-toolchain.toml` ensures every developer
-and CI job runs the exact same `rustc`, `rustfmt`, and `clippy` release:
+`rust-version` identifies the earliest toolchain that the crate supports.
+Use `rust-toolchain.toml` to set the versions of `rustc`, `rustfmt`, and Clippy
+for developers and continuous integration (CI).
 
 ```toml
 # rust-toolchain.toml
@@ -45,16 +44,18 @@ channel = "1.100.0"
 components = ["rustfmt", "clippy"]
 ```
 
-Bump `channel` deliberately on new Rust releases (Dependabot does not update
-`rust-toolchain.toml`, though Renovate can). In your CI MSRV job, set
-`RUSTUP_TOOLCHAIN` explicitly (see [MSRV Management](msrv.md#enforcing-msrv-in-ci))
-so `rust-toolchain.toml` does not silently override the older MSRV compiler.
-If you prefer floating with latest stable automatically, omit this file or set
-`channel = "stable"`.
+Update `channel` when you select a new Rust release. Dependabot does not update
+`rust-toolchain.toml`. Renovate can update this file.
+
+In the CI job for the MSRV, set `RUSTUP_TOOLCHAIN` to the MSRV. This value has
+priority over `rust-toolchain.toml`. Refer to [Enforcing MSRV in CI](msrv.md#enforcing-msrv-in-ci).
+
+To use the latest stable version automatically, set `channel = "stable"`.
+You can also omit `rust-toolchain.toml` if the default toolchain is stable.
 
 ## Lints
 
-Configure both `rustc` and `clippy` lints declaratively in `Cargo.toml`:
+Configure the `rustc` and Clippy lints in `Cargo.toml`.
 
 ```toml
 [lints.rust]
@@ -71,40 +72,38 @@ todo = "warn"
 undocumented_unsafe_blocks = "warn"
 ```
 
-In multi-crate workspaces, define `[workspace.lints.rust]` and
-`[workspace.lints.clippy]` once in the root `Cargo.toml`, and inherit them in
-each member crate with:
+If the workspace has more than one crate, define `[workspace.lints.rust]` in the root `Cargo.toml`.
+Define `[workspace.lints.clippy]` in the same file.
+Set `workspace = true` in the `[lints]` section of each member crate.
 
 ```toml
 [lints]
 workspace = true
 ```
 
-### Why this exact lint setup?
+### Lint groups and priorities
 
-- **`priority = -1` on groups (`all`, `pedantic`)** — Cargo requires lint
-  groups to have a lower priority than individual lints (`0` by default) so you
-  can selectively tune or relax specific lints in `Cargo.toml` without conflict.
-- **No `nursery` in hard CI gates** — Clippy's `nursery` group contains
-  unfinished, experimental lints that frequently produce false positives or
-  change behavior on routine 6-week `stable` Rust upgrades. Pair `all` +
-  `pedantic` with targeted `restriction` lints (`dbg_macro`, `todo`,
-  `undocumented_unsafe_blocks`) for strictness without false-alarm CI breakage.
-- **`unused_crate_dependencies = "warn"`** — flags dependencies declared in
-  `Cargo.toml` that are no longer imported in code, preventing dependency-tree
-  bloat (reinforced by Cargo 1.100's unused-dependency diagnostics).
+- Set `priority = -1` for the `all` and `pedantic` groups. Individual lints
+  at the default priority of `0` can then override the group settings.
+- Do not make the Clippy `nursery` group mandatory in CI. Its experimental
+  lints can give false positives or change in a stable Rust release.
+- Select individual `restriction` lints for your policy. Examples include
+  `dbg_macro`, `todo`, and `undocumented_unsafe_blocks`.
+- Set `unused_crate_dependencies = "warn"` to identify dependencies that
+  your code does not import. Cargo 1.100 also gives diagnostics for unused
+  dependencies.
 
-In CI, run clippy with `-D warnings` so any warning fails the build:
+Use `-D warnings` in CI. With this flag, a Clippy warning causes the check to fail.
 
 ```bash
 cargo clippy --all-targets --all-features --locked -- -D warnings
 ```
 
-### Suppressing lints with `#[expect(..., reason = "...")]`
+### Lint exceptions with `#[expect]`
 
-When a lint is genuinely wrong for a specific piece of code, use Rust 1.81+'s
-`#[expect]` attribute with an inline `reason` string (enforced at compile time
-by `clippy::allow_attributes` and `clippy::allow_attributes_without_reason`):
+If a lint does not apply to an item, add a `#[expect]` attribute. Set its `reason` value.
+Rust 1.81 or later supports the attribute. The Clippy lints
+`allow_attributes` and `allow_attributes_without_reason` enforce this policy.
 
 ```rust
 #[expect(
@@ -115,71 +114,64 @@ by `clippy::allow_attributes` and `clippy::allow_attributes_without_reason`):
 let pct = used.clamp(0.0, 100.0) as u8;
 ```
 
-Unlike `#[allow(...)]`, which silently stays behind forever after code is
-refactored, `#[expect(...)]` emits an `unfulfilled_lint_expectations` compiler
-warning as soon as the underlying code stops triggering the lint—forcing dead
-suppressions to be cleaned up.
+`#[expect]` causes an `unfulfilled_lint_expectations` warning if the original
+lint no longer applies. Remove the exception when you get this warning.
+`#[allow]` stays in the code without a warning when the original lint no
+longer applies.
 
-## Forbidding unsafe code
+## Restrict `unsafe` code
 
-Setting `unsafe_code = "forbid"` in `[lints.rust]` (or `#![forbid(unsafe_code)]`
-at the crate root) provides a compile-time guarantee that no `unsafe` block—even
-inside macro expansions—can enter your crate.
+Set `unsafe_code = "forbid"` in `[lints.rust]`. As an alternative, add
+`#![forbid(unsafe_code)]` at the crate root. The compiler rejects `unsafe`
+blocks. It also rejects these blocks in macro expansions.
 
-If your crate *must* use `unsafe` for FFI or low-level primitives, change
-`unsafe_code` from `"forbid"` to `"warn"` or `"allow"` selectively, keep
-Edition 2024's default `unsafe_op_in_unsafe_fn` warning active, and keep
-`clippy::undocumented_unsafe_blocks = "deny"` so every `unsafe` block requires
-a `// SAFETY:` invariant justification.
+Some foreign function interfaces (FFIs) or low-level primitives make `unsafe` necessary.
+If `unsafe` is necessary, use `"warn"` or `"allow"` only in the applicable scope.
+Keep the Edition 2024 warning
+`unsafe_op_in_unsafe_fn` active. Set `clippy::undocumented_unsafe_blocks = "deny"`
+to make a `// SAFETY:` comment mandatory for each `unsafe` block.
 
 ## Dependency declarations
 
-Declare dependencies cleanly and rely on Edition 2024's MSRV-aware resolver:
+Declare the dependencies in `Cargo.toml`.
 
 ```toml
 [dependencies]
-# Standard semver range — accepts 1.x updates while excluding 2.0.
-# With Edition 2024 (Resolver v3), `cargo update` automatically prefers
-# versions compatible with your `package.rust-version`.
+# This range permits 1.x updates. It excludes 2.0.
+# Cargo Resolver v3 gives priority to versions that support package.rust-version.
 serde = { version = "1", features = ["derive"] }
 
-# Disable default features when you only need a subset.
+# Disable default features if only some of the features are necessary.
 toml = { version = "0.8", default-features = false, features = ["parse"] }
 
-# Opt out of C dependencies when possible. rust_backend routes through
-# pure-Rust miniz_oxide instead of libz-sys, keeping a C toolchain out
-# of the build and unsafe FFI out of the tree.
+# The rust_backend feature uses miniz_oxide in place of libz-sys.
+# It removes the need for a C toolchain and an unsafe FFI call to libz-sys.
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 ```
 
-### Rules of thumb
+### Dependency rules
 
-1. **Use standard semver ranges** (`"1"`, `"0.8"`) and **avoid `<x.y` upper
-   bounds in libraries.** Upper-bound minor pins block downstream consumers
-   from unifying versions or taking security patches, and Edition 2024's
-   Resolver v3 already prevents `cargo update` from selecting dependencies
-   above your declared `rust-version`.
-2. **Disable default features** when you only need a subset. Every enabled
-   feature widens the dependency graph and audit surface.
-3. **Prefer pure-Rust backends** (`rustls`, `miniz_oxide`, `gix`) over C
-   wrappers (`openssl-sys`, `libz-sys`, `libgit2-sys`). They simplify
-   cross-compilation and eliminate C memory-safety risks.
+1. Use standard Semantic Versioning ranges, for example `"1"` and `"0.8"`.
+2. Avoid minor-version upper limits such as `<x.y` in libraries. An upper
+   limit can prevent users from using one dependency version or getting a
+   security fix. Resolver v3 gives priority to versions that support the MSRV.
+3. If you use only some features, disable the default features. Each enabled
+   feature can add dependencies that you must audit.
+4. Use a pure-Rust backend when possible. Examples include `rustls`,
+   `miniz_oxide`, and `gix`. A pure-Rust backend can let you cross-compile without a C toolchain or interface.
 
 ## Licensing
 
-The Rust ecosystem standard is **dual-licensed under MIT OR Apache-2.0**:
+Rust projects commonly use `MIT OR Apache-2.0`. Users can select one of the two licenses.
+The Apache 2.0 license gives a patent grant. The MIT license is compatible
+with GPLv2-only projects.
 
-- Users can choose which license to follow.
-- Apache-2.0's patent grant protects contributors and users.
-- MIT remains compatible with GPLv2-only consumers.
-
-Include both `LICENSE-MIT` and `LICENSE-APACHE` files in the repository root,
-and state in `CONTRIBUTING.md` that contributions are dual-licensed under the
-same terms.
+Put `LICENSE-MIT` and `LICENSE-APACHE` in the repository root. In
+`CONTRIBUTING.md`, record that the same license terms apply to contributions.
 
 ## Dev-dependencies
 
-Keep `[dev-dependencies]` minimal:
+Keep only the necessary dependencies in `[dev-dependencies]`.
 
 ```toml
 [dev-dependencies]
@@ -187,17 +179,16 @@ tempfile = "3"    # temporary directories for integration tests
 proptest = "1"    # property-based testing
 ```
 
-While dev-dependencies are never linked into shipped release binaries
-(`safe-to-deploy` in `cargo-vet`), their build scripts (`build.rs`), procedural
-macros, and test helpers **execute arbitrary code on developer machines and CI
-runners** (`safe-to-run`). Keep them vetted and scanned in `cargo-deny` and
-`cargo-audit`.
+Cargo does not link development dependencies into release binaries. Their
+build scripts (`build.rs`), procedural macros, and test helpers can start code
+on developer computers and CI runners. In `cargo-vet`, use the `safe-to-run`
+criterion for these dependencies. Include them in `cargo-deny` and
+`cargo-audit` checks.
 
 ## Binary and library targets
 
-Cargo automatically discovers `src/lib.rs` and `src/main.rs` (named after the
-package), so most crates need no explicit target tables at all. Add `[[bin]]`
-only when renaming a binary or placing it at a custom path:
+Cargo finds `src/lib.rs` and `src/main.rs` automatically. It uses the package
+name for the default binary. If you change the binary name or path, add `[[bin]]`.
 
 ```toml
 [[bin]]
@@ -205,9 +196,9 @@ name = "my-tool"
 path = "src/main.rs"
 ```
 
-If your project is primarily a CLI binary, put core logic in `src/lib.rs` and
-keep `src/main.rs` as a thin entrypoint—this enables `cargo test --doc` and
-makes unit, property, fuzz, and integration tests straightforward to wire up.
+If the project is a command-line tool, put the main logic in `src/lib.rs`.
+Keep only the entry point in `src/main.rs`. This structure lets you use
+`cargo test --doc` and add unit, property, fuzz, and integration tests.
 
 ## Further reading
 

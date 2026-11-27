@@ -1,43 +1,42 @@
 # Local Development
 
-A frictionless local development setup keeps quality high: contributors—human
-and AI coding agents alike—should be able to clone the repository, install
-prebuilt tooling in under a minute, and run the exact same checks CI enforces.
+Contributors and coding agents can install prebuilt tools after they clone the
+repository. The local tools do the same checks as continuous integration (CI).
 
 ## The `justfile`
 
-A `justfile` is the single entry point for every development task. Developers
-run `just` to list available recipes and `just ci` to run the full check suite:
+The `justfile` gives contributors one place to find development commands.
+Use `just` to see the recipes. Use `just ci` to start the full check suite.
 
 ```makefile
-# List available recipes by default, or run `just ci` to execute every check.
+# Show the recipes by default. Use just ci to start all checks.
 default:
     @just --list
 
-# Check formatting without modifying files.
+# Do the format check without changes to files.
 fmt:
     cargo fmt --check
 
-# Reformat in place.
+# Format the files.
 fmt-fix:
     cargo fmt
 
-# Lint all targets and features, treating warnings as errors.
+# Lint all targets and features. Treat warnings as errors.
 lint:
     cargo clippy --all-targets --all-features --locked -- -D warnings
 
-# Verify rustdoc builds cleanly with no broken intra-doc links.
+# Build the API documentation. Include the check for broken links.
 doc:
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features --locked
 
-# Run the test suite (nextest + doctests; omit `cargo test --doc` if the crate has no `src/lib.rs`).
+# Start the tests. If the crate has no src/lib.rs, omit cargo test --doc.
 test:
     cargo nextest run --locked
     cargo test --doc --locked
 
-# Check this branch for public API breaks against main, as CI does (libraries).
-# Baseline is the merge base, so commits added to main since branching are not
-# reported as removals. Use `just semver major` for a PR titled `feat!:` etc.
+# Compare the public API with the merge base of main. CI uses the same baseline.
+# This comparison excludes changes that main got after the two branches diverged.
+# If the pull request title has the ! marker, use just semver major.
 semver release_type="minor":
     git fetch origin main
     cargo semver-checks --baseline-rev "$(git merge-base HEAD origin/main)" --release-type {{release_type}}
@@ -46,7 +45,7 @@ semver release_type="minor":
 audit:
     cargo audit
 
-# Verify the crate still builds on its declared MSRV.
+# Do the MSRV check.
 msrv:
     cargo msrv verify
 
@@ -62,79 +61,79 @@ trivy:
 zizmor:
     zizmor .github/workflows
 
-# Verify the dependency tree against our locked supply-chain trust policy.
+# Check the dependency tree with the audit records in the lockfile.
 vet:
     cargo vet --locked
 
-# Report unsafe-code usage (informational; leading `-` ignores nonzero exit).
+# Report the amount of unsafe code. The hyphen makes just ignore failure exit codes.
 geiger:
     -cargo geiger
 
-# Run every check. Fails fast on the first failing recipe.
+# Start all checks. The command stops if a recipe fails.
 ci: fmt lint doc test audit msrv deny trivy zizmor vet geiger
 ```
 
-### Why `just`?
+### What `just` does
 
-- **Self-documenting** — `just` prints every recipe alongside its comment.
-- **Cross-platform** — behaves consistently on Linux, macOS, and Windows.
-- **CI parity** — every recipe uses `--locked` where applicable so local checks
-  match CI behavior bit-for-bit.
-- **Fail-fast** — `just ci` stops immediately at the first failing gate.
+- `just` shows each recipe with its comment.
+- `just` operates on Linux, macOS, and Windows.
+- The recipes use `--locked` where applicable. Thus, local checks use the same
+  dependency versions as CI.
+- `just ci` stops when a check fails.
 
-Pair the `justfile` with a `rust-toolchain.toml` (see
-[Project Scaffolding](scaffolding.md#toolchain-pinning-rust-toolchaintoml)) so
-`rustup` installs the exact same compiler, `rustfmt`, and `clippy` automatically
-on first `cargo` invocation.
+Add [`rust-toolchain.toml`](scaffolding.md#toolchain-pinning-rust-toolchaintoml)
+to the repository. When you first use Cargo, `rustup` installs the compiler,
+`rustfmt`, and Clippy versions from that file.
 
 ## `AGENTS.md` and `CLAUDE.md`
 
-Modern teams use multiple AI coding assistants (Claude Code, Codex, Cursor,
-Antigravity, etc.). Keep project instructions in **`AGENTS.md`**—the open,
-vendor-neutral standard—and have **`CLAUDE.md`** import it via `@AGENTS.md` so
-instructions never drift across tools:
+Put the project instructions for coding agents in `AGENTS.md`. To use the same
+instructions in Claude Code, add `@AGENTS.md` to `CLAUDE.md`.
 
 ```markdown
 <!-- AGENTS.md -->
-# Project Agent Guidelines
+# Project Instructions for Coding Agents
 
 ## Checks
 
-Run `just ci` before claiming a change is complete—it chains fmt, lint, doc,
-test, audit, msrv, deny, trivy, zizmor, vet, and geiger, failing fast.
-`just fmt` verifies formatting without writing; use `just fmt-fix` to reformat.
+Start the checks with `just ci` before you report that a change is complete.
+The command stops when a check fails. Use `just fmt` to check the format.
+Use `just fmt-fix` to change the format.
 
-## Invariants
+## Project requirements
 
-- **Never panic on untrusted input.** Malformed, truncated, or empty input must
-  return a structured `Result` error or degrade gracefully—never `unwrap` or
-  `expect` on external data.
-- **Edition is 2024; MSRV is 1.96** (`rust-version` in `Cargo.toml`, rolling N-4
-  policy, enforced in CI). Do not use APIs stabilized after MSRV without an
-  explicit MSRV bump PR.
-- **Keep the dependency tree small.** Every new dependency requires a rationale
-  in the PR and a `cargo vet` audit or time-bounded exemption.
+- Do not use `unwrap` or `expect` on external data. If the input is malformed,
+  truncated, or empty, return a structured `Result` error or use a safe fallback.
+- Use Rust Edition 2024. The minimum supported Rust version (MSRV) is 1.96.
+  CI checks the `rust-version` in `Cargo.toml` against the N-4 policy.
+  To use an API from a newer Rust version, first increase the MSRV in its own pull request.
+- If you add a dependency, give the reason in the pull request. Add a
+  `cargo vet` audit or an exemption with an expiration date.
 
 ## Code standards
 
-- `[lints.clippy]` enables `all` and `pedantic` plus targeted restriction lints,
-  and CI runs `-D warnings`. When a lint must be suppressed, use
-  `#[expect(clippy::..., reason = "...")]`—never undocumented `#[allow]`.
-- Unit tests live in `mod tests` beside the code; integration tests live in
-  `tests/`. Every bug fix ships with a regression test.
+- `[lints.clippy]` enables the `all` and `pedantic` groups and specific
+  restriction lints. CI uses `-D warnings`.
+- If a lint does not apply to an item, use
+  `#[expect(clippy::..., reason = "...")]` on that item. Do not use
+  `#[allow]` without a `reason` value.
+- Put unit tests in `mod tests` next to the code. Put integration tests in
+  `tests/`. Add a regression test for each bug fix.
 
-## Repo etiquette
+## Pull requests
 
-- Branch off `main` — direct pushes are blocked by repository rulesets.
+- Create a branch from `main`. Repository rulesets block direct pushes to
+  `main`.
 - Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
-  for commit messages and PR titles (`feat:`, `fix:`, `docs:`, `chore:`,
-  `ci:`, `refactor:`, `test:`); `release-plz` combines these with
-  `cargo-semver-checks` to compute the next version and changelog.
-- Never hand-edit `version` in `Cargo.toml` or `CHANGELOG.md`; `release-plz`
-  owns both via automated Release PRs.
+  for commit messages and pull request titles. Examples include `feat:`,
+  `fix:`, `docs:`, `chore:`, `ci:`, `refactor:`, and `test:`.
+- `release-plz` uses the commit messages and `cargo-semver-checks` to
+  calculate the next version and generate the changelog.
+- Do not manually edit `version` in `Cargo.toml`. Do not manually edit
+  `CHANGELOG.md`. `release-plz` updates the two files in a release pull request.
 ```
 
-And in `CLAUDE.md`:
+Example `CLAUDE.md`
 
 ```markdown
 @AGENTS.md
@@ -142,42 +141,38 @@ And in `CLAUDE.md`:
 
 ## The `CONTRIBUTING.md` file
 
-A good `CONTRIBUTING.md` answers every question a new contributor has on day one:
+Include this information in `CONTRIBUTING.md`.
 
-1. **Finding work** — link to issues, highlighting `good first issue` labels.
-2. **Fast tool setup** — prebuilt binary installation via `cargo-binstall`.
-3. **The check suite** — a table of every `just` recipe and what it protects.
-4. **Code standards** — `#[expect(..., reason = "...")]` lint discipline, test
-   expectations, panic policy, and dependency rules.
-5. **Pull request & release flow** —
+1. Link to issues with the `good first issue` label.
+2. Give the commands to install tools with `cargo-binstall`.
+3. Give the purpose of each `just` recipe in a table.
+4. Record the lint, test, panic, and dependency policies.
+5. Give the pull request and release procedures. Include
    [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/),
-   branch rulesets, and automated `release-plz` PRs.
-6. **Dual-licensing notice** — explicit confirmation that contributions are
-   submitted under `MIT OR Apache-2.0`.
+   branch rulesets, and release pull requests from `release-plz`.
+6. Record that contributors submit changes under `MIT OR Apache-2.0`.
 
-### Fast tool installation with `cargo-binstall`
+### Tool installation with `cargo-binstall`
 
-Compiling 8+ Rust subcommands from source with `cargo install` can take 15
-minutes on a laptop. Recommend [`cargo-binstall`](https://github.com/cargo-bins/cargo-binstall)
-so contributors fetch verified prebuilt binaries in seconds:
+Use [`cargo-binstall`](https://github.com/cargo-bins/cargo-binstall) to install
+prebuilt tools. With `cargo install`, Cargo compiles the tools from source.
 
 ```bash
 cargo install cargo-binstall --locked
 cargo binstall -y just cargo-nextest cargo-semver-checks cargo-audit cargo-msrv cargo-deny cargo-vet zizmor cargo-geiger
 
-# Or build from source (always pass --locked):
+# To compile from source, use the lockfile from each tool's package.
 cargo install --locked just cargo-nextest cargo-semver-checks cargo-audit cargo-msrv cargo-deny cargo-vet zizmor cargo-geiger
 # trivy: https://trivy.dev/latest/getting-started/installation/
 ```
 
 ## The `.gitignore` file
 
-Note that `Cargo.lock` is **intentionally not ignored**—commit it for
-applications, and typically for libraries as well (see
-[Dependency Management](dependencies.md#lockfile-management)).
+Commit `Cargo.lock` for applications. For libraries, refer to
+[Lockfile management](dependencies.md#lockfile-management).
 
 ```gitignore
-# Generated by Cargo
+# Files from Cargo
 debug
 target
 
@@ -187,14 +182,14 @@ target
 # MSVC Windows debug symbols
 *.pdb
 
-# Compiler ICE dumps
+# Compiler error dumps
 rustc-ice-*.txt
 
-# Mutation testing & coverage outputs
+# Mutation test and coverage files
 **/mutants.out*/
 lcov.info
 
-# Local agent / editor settings (not committed)
+# Local settings for coding agents and editors
 .claude/settings.local.json
 ```
 

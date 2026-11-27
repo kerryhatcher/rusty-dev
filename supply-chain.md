@@ -1,21 +1,20 @@
 # Supply Chain Security
 
-Rust's crate ecosystem is both a productivity multiplier and a primary supply-chain
-attack surface. Every direct or transitive crate can introduce vulnerabilities,
-unmaintained dependencies, copyleft license obligations, or malicious build
-scripts. Three complementary tools—`cargo-deny`, `cargo-vet`, and
-`cargo-audit`—combined with release-age cooldowns make every dependency and
-exception explicit, reviewable, and reversible.
+A direct or transitive crate can add a vulnerability or a malicious build script.
+It can also add a dependency with no maintainer or copyleft license obligations.
+Use `cargo-deny`, `cargo-vet`, and `cargo-audit` to check dependencies. Set
+a minimum publication age to give reviewers time to identify a malicious
+release.
 
-Keep all policy files (`deny.toml`, `supply-chain/`) and `Cargo.lock` in version
-control, and always pass `--locked` in CI and release builds so the graph being
-built is the exact graph that was reviewed.
+Commit `deny.toml`, `supply-chain/`, and `Cargo.lock`. Use `--locked` in CI
+and release builds. This makes the builds use the dependency versions from
+the review.
 
 ## `cargo-deny`: advisories, licenses, bans, and sources
 
-[`cargo-deny`](https://embarkstudios.github.io/cargo-deny/) enforces structural,
-legal, and source policies across your dependency graph via `deny.toml`
-(compatible with `cargo-deny` 0.20+):
+[`cargo-deny`](https://embarkstudios.github.io/cargo-deny/) uses `deny.toml`
+to check dependency versions, advisories, licenses, and sources. This example
+uses `cargo-deny` 0.20 or later.
 
 ```toml
 # deny.toml
@@ -32,18 +31,18 @@ all-features = true
 [output]
 feature-depth = 1
 
-# `cargo deny check advisories` — vulnerabilities, unsoundness, and unmaintained crates.
+# This check identifies vulnerabilities, unsound crates, and crates with no maintainer.
 [advisories]
 unmaintained = "workspace"
 unsound = "all"
 yanked = "deny"
-# Require advisory exceptions to expire so temporary waivers never become permanent.
+# Set an expiration date for each advisory exception.
 ignore-expiry = "90d"
 ignore = [
     # { id = "RUSTSEC-YYYY-NNNN", reason = "Not reachable; upstream fix tracked in #123", expiry = "60d" }
 ]
 
-# `cargo deny check licenses` — SPDX license allowlist.
+# This list identifies the permitted SPDX licenses.
 [licenses]
 confidence-threshold = 0.93
 allow = [
@@ -57,21 +56,21 @@ allow = [
 [licenses.private]
 ignore = false
 
-# `cargo deny check bans` — duplicate versions, wildcards, C-wrapper bans, std overlaps.
+# This check identifies duplicate versions, wildcards, C wrappers, and crates that overlap std.
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
-allow-wildcard-paths = true # Permit path-only intra-workspace private deps
+allow-wildcard-paths = true # Permit private path dependencies in this workspace only.
 highlight = "all"
 deny = [
     { crate = "openssl-sys", use-instead = "rustls" },
 ]
 
-# Flag crates superseded by modern Rust `std`/`core` (e.g., lazy_static, once_cell).
+# Identify crates that std or core replaces, for example lazy_static and once_cell.
 [bans.std-replacements]
 scope = "workspace"
 
-# `cargo deny check sources` — restrict packages exclusively to crates.io.
+# Permit packages from crates.io only.
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
@@ -83,21 +82,21 @@ gitlab = []
 bitbucket = []
 ```
 
-### What each section protects
+### Dependency checks
 
-| Section | Command | What it catches |
-|---------|---------|-----------------|
-| `[advisories]` | `cargo deny check advisories` | RustSec CVEs, unsound crates, yanked versions, unmaintained dependencies, and expired waivers |
-| `[licenses]` | `cargo deny check licenses` | Unapproved or copyleft SPDX licenses across all target platforms |
-| `[bans]` | `cargo deny check bans` | Wildcard dependencies, duplicate versions, banned C wrappers (`openssl-sys`), and crates absorbed into `std` |
-| `[sources]` | `cargo deny check sources` | Unvetted git repositories or alternate registries |
+| Section | Command | Conditions that the check identifies |
+|---------|---------|--------------------------------------|
+| `[advisories]` | `cargo deny check advisories` | RustSec CVEs, unsound crates, yanked versions, crates with no maintainer, and expired exceptions |
+| `[licenses]` | `cargo deny check licenses` | SPDX licenses outside the permitted list, such as copyleft licenses |
+| `[bans]` | `cargo deny check bans` | Wildcard dependencies, duplicate versions, prohibited C wrappers (such as `openssl-sys`), and crates that `std` replaces |
+| `[sources]` | `cargo deny check sources` | Git repositories or registries that the policy does not permit |
 
-## `cargo-vet`: cryptographic human audit policy
+## `cargo-vet` audits
 
-[`cargo-vet`](https://mozilla.github.io/cargo-vet/) ensures every third-party
-crate in `Cargo.lock` is covered by a human code review—either audited directly
-by your team, imported from trusted peer organizations, or covered by an
-explicit, version-pinned exemption:
+[`cargo-vet`](https://mozilla.github.io/cargo-vet/) checks that each third-party
+crate in `Cargo.lock` has an audit or an exemption. Your team can do its own
+audit or import an audit from another organization. An exemption applies to
+a specific version.
 
 ```toml
 # supply-chain/config.toml
@@ -105,7 +104,7 @@ explicit, version-pinned exemption:
 [cargo-vet]
 version = "0.10"
 
-# Import public human-reviewed audit sets from Google, Mozilla, ISRG, and Bytecode Alliance.
+# Import audit records from Google, Mozilla, ISRG, and Bytecode Alliance.
 [imports.google]
 url = "https://raw.githubusercontent.com/google/rust-crate-audits/main/audits.toml"
 
@@ -121,7 +120,7 @@ url = "https://raw.githubusercontent.com/bytecodealliance/wasmtime/main/supply-c
 [policy.my-crate]
 audit-as-crates-io = false
 
-# Explicit, version-pinned exemptions where no external audit exists yet.
+# Exemptions for specific versions with no external audit.
 [[exemptions.my-small-dep]]
 version = "0.4.2"
 criteria = "safe-to-deploy"
@@ -132,64 +131,64 @@ notes = "Reviewed by @owner on 2026-11-01; revisit by 2027-02-01 (#42)"
 
 | Criteria | Meaning |
 |----------|---------|
-| `safe-to-deploy` | Safe to ship in production binaries: no malicious code or severe trustworthiness defects. |
-| `safe-to-run` | Safe to execute during local development/CI (`[dev-dependencies]`, test helpers): will not exfiltrate secrets or compromise workstations. |
+| `safe-to-deploy` | The crate is safe for use in release binaries. It has no malicious code or severe defects that prevent safe use. |
+| `safe-to-run` | The crate is safe for local development and CI. It will not send secrets to unauthorized recipients or give unauthorized access to a computer. |
 
-### Workflow and `--locked` discipline
+### Audit procedure
 
-1. **Bootstrap (`cargo vet init`)** — creates `supply-chain/` and populates
-   baseline exemptions for existing dependencies. Treat initial exemptions as an
-   audit backlog, not proof of review.
-2. **Audit new crates & deltas** — run `cargo vet suggest` to prioritize small
-   reviews, inspect changes with `cargo vet diff <crate> <old> <new>`, and
-   record human reviews with `cargo vet certify` (or trust a known publisher via
-   `cargo vet trust`). Reserve `exemptions` strictly for unreviewed risk
-   acceptances with an owner, rationale, and review date in `notes`.
-3. **Prune stale exemptions** — run `cargo vet prune` after updates to remove
-   exemptions now covered by first-party or imported audits.
-4. **Always run `cargo vet --locked` in CI** — without `--locked`, `cargo-vet`
-   can fetch live remote `audits.toml` files at build time instead of verifying
-   strictly against your reviewed `supply-chain/imports.lock`.
+1. Use `cargo vet init`. The command creates `supply-chain/` and adds exemptions
+   for current dependencies. These exemptions identify audits that are still necessary.
+2. Use `cargo vet suggest` to identify small changes for review.
+3. Examine a version change with `cargo vet diff <crate> <old> <new>`.
+4. Record an audit with `cargo vet certify`. If you trust a publisher, you can
+   record that decision with `cargo vet trust`.
+5. If you accept the risk of an unaudited version, add an exemption. In
+   `notes`, identify the owner. Give the conditions for the exemption and the review date.
+6. After dependency updates, use `cargo vet prune` to remove exemptions that do not apply.
+7. Use `cargo vet --locked` in CI. With `--locked`, the command uses the reviewed
+   `supply-chain/imports.lock`. Without it, the command can download remote
+   `audits.toml` files during the build.
 
 ```text
 supply-chain/
 ├── config.toml    # Policy, trusted imports, and documented exemptions
-├── audits.toml    # First-party audits performed by your maintainers
-└── imports.lock   # Locked snapshot of imported audits (enforced by --locked)
+├── audits.toml    # Audits from your maintainers
+└── imports.lock   # Versions of audits that --locked uses
 ```
 
 ## `cargo-audit`: RustSec advisory & binary scanning
 
-[`cargo-audit`](https://github.com/rustsec/rustsec) checks `Cargo.lock`—and
-compiled binaries built with `cargo-auditable`—against the
-[RustSec Advisory Database](https://rustsec.org):
+[`cargo-audit`](https://github.com/rustsec/rustsec) compares `Cargo.lock`
+with the [RustSec Advisory Database](https://rustsec.org). It can also check
+binaries that you compile with `cargo-auditable`.
 
 ```bash
-# Audit Cargo.lock in source/CI
+# Audit Cargo.lock locally or in CI.
 cargo audit
 
-# Audit a compiled release binary (requires cargo-audit built with `binary-scanning`)
+# To audit a release binary, configure cargo-audit with binary-scanning.
 cargo audit bin target/release/my-crate
 ```
 
-While `cargo-deny check advisories` and `cargo-audit` both consult RustSec for
-`Cargo.lock`, their failure policies and capabilities differ:
+Both `cargo deny check advisories` and `cargo audit` use RustSec for
+`Cargo.lock`. The checks give different results.
 
-- **Exit-code behavior:** With the `deny.toml` above, `cargo deny check advisories`
-  fails on vulnerabilities, `unsound` crates, yanked crates, and workspace-direct
-  `unmaintained` dependencies. Plain `cargo audit` fails on vulnerabilities,
-  treats `unmaintained` and `unsound` advisories as warnings (unless `--deny warnings`
-  is passed), and **does not** flag merely outdated crates.
-- **Yanked versions:** Yanked crate versions are *not* deleted from crates.io
-  (existing lockfiles can still fetch them), but yanking signals a severe defect
-  or regression that new resolutions reject and CI should block.
-- **Binary scanning:** `cargo audit bin` inspects compiled artifacts built with
-  `cargo-auditable` even after source and lockfiles are gone.
+- With the example `deny.toml`, `cargo deny check advisories` fails for
+  vulnerabilities, unsound crates, yanked versions, and direct workspace
+  dependencies with no maintainer.
+- `cargo audit` fails for vulnerabilities. It gives warnings for
+  `unmaintained` and `unsound` advisories. Use `--deny warnings` to make these
+  warnings cause failure. The command does not report a crate only because a
+  newer version is available.
+- Crates.io keeps a yanked version available for current lockfiles. New
+  dependency selections usually exclude it. Block yanked versions in CI.
+- `cargo audit bin` checks binaries that you compile with `cargo-auditable`.
+  The check can operate without the source or the lockfile.
 
-## Putting it together in CI
+## Supply chain checks in CI
 
-Run `cargo-audit` and `cargo-deny` in the `security` job, and run
-`cargo vet --locked` in the `vet` job with SHA-pinned actions:
+Use `cargo-audit` and `cargo-deny` in the `security` job. Use
+`cargo vet --locked` in the `vet` job. Pin GitHub Actions to full commit SHAs.
 
 ```yaml
 jobs:
@@ -229,9 +228,9 @@ jobs:
       - run: cargo vet --locked
 ```
 
-Pair these gates with **Dependabot `cooldown`** and Cargo 1.100's
-**`global-min-publish-age`** (see [Dependency Management](dependencies.md)) so
-brand-new compromised releases are held back before they ever reach your lockfile.
+Set a minimum publication age with [Dependabot and Cargo](dependencies.md).
+The interval gives reviewers time to find a malicious release before it enters
+the lockfile.
 
 ## Further reading
 

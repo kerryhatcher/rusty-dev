@@ -1,60 +1,61 @@
 # Security Scanning
 
-Beyond Cargo dependency policy, a production Rust repository should prevent
-secrets from entering Git history, scan filesystem artifacts for multi-ecosystem
-vulnerabilities, statically audit CI workflows for injection flaws, and monitor
-`unsafe` code across the dependency tree.
+Scan the repository for vulnerabilities and secrets. Check the workflows for
+security defects. Record the use of `unsafe` code in the dependency tree.
 
-## Secret prevention and Trivy filesystem scanning
+## Secret protection and filesystem scans
 
-### Pre-receive defense: GitHub Push Protection
+### GitHub Push Protection
 
-CI scanners run *after* a commit has already been pushed—if a secret reaches a
-public branch or pull request, consider it compromised and rotate it immediately.
-Enable **GitHub Secret Scanning and Push Protection** (**Settings → Security and
-quality → Advanced Security**) so GitHub rejects pushes containing recognizable
-tokens, cloud keys, or private keys before they enter Git history. Optionally
-pair this locally with a pre-commit scanner like [`gitleaks`](https://github.com/gitleaks/gitleaks).
+CI scanners examine a commit after the push. If a secret becomes public in a
+branch or pull request, replace it immediately. An unauthorized person can use the
+secret to get access to the service.
+
+Enable **GitHub Secret Scanning and Push Protection**. The option is in
+**Settings**, under **Security and quality**, in **Advanced Security**.
+GitHub blocks pushes that contain recognizable tokens or keys. For an
+additional local check, you can use a pre-commit scanner such as
+[`gitleaks`](https://github.com/gitleaks/gitleaks).
 
 ### Repository & lockfile scanning: Trivy
 
-[Trivy](https://trivy.dev) scans your repository (`Cargo.lock`, containerfiles,
-scripts, and configuration files) for known CVEs and hardcoded secrets:
+[Trivy](https://trivy.dev) scans the repository for known vulnerabilities and
+secrets in files. The scan includes `Cargo.lock`, containerfiles, scripts,
+and configuration files.
 
 ```bash
 trivy fs --scanners vuln,secret --exit-code 1 --skip-dirs target .
 ```
 
-- `--scanners vuln,secret` — focuses on vulnerability and secret detection.
-- `--exit-code 1` — fails CI when findings exist.
-- `--skip-dirs target` — skips compiled build artifacts for speed and signal.
+- `--scanners vuln,secret` selects vulnerability and secret scans.
+- `--exit-code 1` gives a failure exit code when the scan finds a problem.
+- `--skip-dirs target` omits compiled files and decreases the scan time.
 
-> **Pin both the scanner action SHA and the Trivy binary `version:`:** In March
-> 2026, attackers published a malicious Trivy release (`v0.69.4`) and rewrote
-> 75+ tags of `aquasecurity/trivy-action` and `setup-trivy` to
-> credential-stealing code (`CVE-2026-33634` / `GHSA-69fq-xp46-6x23`). Security
-> scanners execute with full access to runner memory and environment: always pin
-> the action to a verified 40-char commit SHA, pin the `version:` input rather
-> than floating on `latest`, and run scanners in read-only jobs holding zero
-> secrets.
+> **Caution.** Make sure that the scanner action uses a full 40-character
+> commit SHA from its source repository.
+> Set the Trivy binary version in `version:`. Use a read-only job with no
+> secrets for each scan. A malicious scanner can get credentials from runner
+> memory or environment variables.
+>
+> In March 2026, attackers published Trivy `v0.69.4` with malicious code. They
+> also moved more than 75 action tags to malicious code (`CVE-2026-33634`).
 
 ## CI workflow static analysis: `zizmor`
 
-A memory-safe Rust binary cannot protect your users if a GitHub Actions workflow
-has a template-injection bug (`${{ github.event.pull_request.title }}` in `run:`),
-an unpinned action, or dangerous `pull_request_target` permissions that let an
-attacker steal release credentials.
+A workflow defect can let an attacker steal release credentials. Examples
+include a template injection, an action without a fixed commit SHA, or too many
+permissions for `pull_request_target`.
 
-Use [`zizmor`](https://docs.zizmor.sh/) (written in Rust) locally and in CI to
-statically audit `.github/workflows/`:
+Use [`zizmor`](https://docs.zizmor.sh/) to check `.github/workflows/` locally.
+Use the same check in CI.
 
 ```bash
 zizmor .github/workflows
 ```
 
-## Tracking `unsafe` code in your tree
+## Checks for `unsafe` code
 
-### 1. Compiler and Clippy enforcement (your own code)
+### 1. Compiler and Clippy checks
 
 Start with `unsafe_code = "forbid"` in `[lints.rust]`:
 
@@ -63,38 +64,35 @@ Start with `unsafe_code = "forbid"` in `[lints.rust]`:
 unsafe_code = "forbid"
 ```
 
-If a crate genuinely requires `unsafe` (for FFI or verified low-level
-primitives), Edition 2024 warns on `unsafe_op_in_unsafe_fn` by default, and
-`clippy::undocumented_unsafe_blocks = "deny"` ensures every `unsafe` block
-documents its `// SAFETY:` invariant at compile time.
+If `unsafe` is necessary, keep the Edition 2024 warning `unsafe_op_in_unsafe_fn` active.
+Set `clippy::undocumented_unsafe_blocks = "deny"`. Clippy then rejects an
+`unsafe` block that has no `// SAFETY:` comment for its invariant.
 
 ### 2. Dependency-tree `unsafe` metrics (`cargo-geiger` and alternatives)
 
 [`cargo-geiger`](https://github.com/geiger-rs/cargo-geiger) counts `unsafe`
-functions, expressions, traits, and `impl`s across your crate and every
-transitive dependency:
+functions, expressions, traits, and implementations in the crate and its
+transitive dependencies.
 
 ```makefile
-# Informational metric — leading `-` ignores cargo-geiger's nonzero exit codes
-# on macro/resolver quirks.
+# Ignore cargo-geiger failure exit codes because this recipe gives information only.
 geiger:
     -cargo geiger
 ```
 
-### Practical guidance on `unsafe` scanners
+### How to use the results
 
-- **Treat counts as a triage signal, not a pass/fail gate** — a small, heavily
-  audited `unsafe` block in `std` or `zerocopy` is safer than sprawling,
-  unreviewed safe logic. Watch for unexpected jumps when updating or choosing
-  dependencies.
-- **Tooling alternatives** — `cargo-geiger` has a large dependency tree and
-  slower maintenance cadence on brand-new Rust syntax. If you want a tiny, fast
-  structural scanner, consider [`cargo-issafe`](https://crates.io/crates/cargo-issafe)
-  or [`cargo-trust`](https://github.com/ids1024/cargo-trust); for call-graph
-  effect tracking (unsafe, filesystem, and network reachability), evaluate
-  [`cargo-scan`](https://github.com/PLSysSec/cargo-scan).
+- Use the counts to identify changes for review. Do not use the counts as a
+  limit for the check result. A count does not show how well reviewers
+  examined the code. Examine unexpected increases after a dependency change.
+- `cargo-geiger` has many dependencies. New Rust syntax can make a scanner update necessary.
+  For a smaller syntax scanner, use
+  [`cargo-issafe`](https://crates.io/crates/cargo-issafe) or
+  [`cargo-trust`](https://github.com/ids1024/cargo-trust).
+- For call-graph analysis of `unsafe`, filesystem, and network operations,
+  you can use [`cargo-scan`](https://github.com/PLSysSec/cargo-scan).
 
-## Putting it together in CI
+## Security scans in CI
 
 ```yaml
 jobs:
