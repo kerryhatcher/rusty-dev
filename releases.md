@@ -49,9 +49,12 @@ Mark every breaking change with `!` in the commit header (`feat!:`,
 anchored to the header, and with squash merges the footer never reaches `main`
 anyway, so a footer-only breaking change can be released as a minor or patch
 bump. A `!` in the header is the only marker this setup preserves. The CI
-[`semver` job](ci-cd.md#semver--public-api-compatibility-libraries) catches many
-library API breaks on the PR itself, but not all of them, and not behavioral or
-CLI breaks in binaries, so reviewers should check for a missing `!`.
+[`semver` job](ci-cd.md#semver--public-api-compatibility-libraries) fails a PR
+whose title lacks `!` when `cargo-semver-checks` detects a public API break.
+It does not detect every kind of API break (for example, some parameter and
+return-type changes), and it cannot see behavioral changes or CLI breaks in
+binaries. Reviewers should still check library API changes, behavior, and CLI
+changes for a missing `!`.
 
 The full grammar (types, optional `(scope)`, `!`, and `BREAKING CHANGE:`
 footers) is defined by the
@@ -176,6 +179,24 @@ git_tag_name = "v{{ version }}"
 
 - **Never hand-edit `version` in `Cargo.toml` or `CHANGELOG.md`.** Merge the
   automated Release PR when you are ready to ship.
+- **Merge the Release PR only when it is current.** `release-plz release`
+  publishes whatever is on `main` after the merge, not the tree that was
+  reviewed in the Release PR. If another PR merges after the Release PR was
+  last regenerated, that change ships under a version number and changelog that
+  were computed without it (for example, a breaking change released as a minor
+  bump). The `release-pr` job regenerates the Release PR on every push to
+  `main`, so before merging:
+  - Wait for the `release-pr` run for the latest `main` commit to finish, then
+    re-review the version and changelog it produced.
+  - Never click **Update branch** on the Release PR. That merges `main` into it
+    without recomputing the version or changelog. Let `release-plz` regenerate
+    it instead.
+  - Keep **Require branches to be up to date** enabled (see
+    [Project governance](governance.md#branch-and-tag-protection-with-github-rulesets)),
+    so a Release PR built on an older `main` cannot merge.
+  - With a merge queue, add the Release PR only when no other PR is queued:
+    the queue would otherwise merge it on top of PRs it was not computed
+    from.
 - **Bootstrap `0.1.0` once manually.** Crates.io requires the very first release
   of a brand-new crate name to be published manually so you can configure
   Trusted Publishing settings on crates.io; every subsequent release runs
@@ -217,6 +238,14 @@ jobs:
   release-pr:
     name: release-pr
     if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') }}
+    # Serialize Release PR updates; the freshness step below handles ordering.
+    concurrency:
+      group: release-plz-${{ github.ref }}
+      cancel-in-progress: false
+      # Keep every pending run (FIFO) instead of letting a newly queued run
+      # replace a pending one, so the run for the newest commit is never lost.
+      # (actionlint <= 1.7.12 does not know this key yet: rhysd/actionlint#654.)
+      queue: max
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -229,12 +258,30 @@ jobs:
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
-      - uses: actions/create-github-app-token@f418cffdfd93fef6b8c199859f5f0b5d0bf93c4b # v3.4.0
+      - uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         id: app-token
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          # Scope the token below the App's installation permissions:
+          # release-pr pushes the release branch and opens/updates the PR.
+          permission-contents: write
+          permission-pull-requests: write
+      # `concurrency` does not guarantee runs execute in push order. Skip this
+      # run if `main` has moved on, so an older run never overwrites a Release
+      # PR computed from a newer commit; the newer commit's run updates it.
+      - name: Check this run is for the latest main commit
+        id: fresh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_SHA: ${{ github.sha }}
+        run: |
+          head=$(gh api "repos/$REPO/commits/main" --jq .sha)
+          if [ "$head" = "$RUN_SHA" ]; then latest=true; else latest=false; fi
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
       - name: Update Release PR
+        if: steps.fresh.outputs.latest == 'true'
         uses: release-plz/action@66b324fd6c72d05d2a08568492ecdd62bfb8a62b # v0.5.148
         with:
           command: release-pr
@@ -261,11 +308,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
-      - uses: actions/create-github-app-token@f418cffdfd93fef6b8c199859f5f0b5d0bf93c4b # v3.4.0
+      - uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         id: app-token
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          # release pushes tags and GitHub Releases; it only reads PRs (to
+          # find the merged Release PR and credit contributors).
+          permission-contents: write
+          permission-pull-requests: read
       - name: Release crates and tag
         id: rp
         uses: release-plz/action@66b324fd6c72d05d2a08568492ecdd62bfb8a62b # v0.5.148
@@ -283,6 +334,14 @@ CI checks on the Release PR or downstream tag workflows. Minting a short-lived
 installation token via `actions/create-github-app-token@v3` from a minimally
 scoped GitHub App ensures the Release PR runs full CI before merge and any
 tag-triggered jobs fire reliably.
+
+Request only the permissions each job needs with the action's `permission-*`
+inputs. Without them, the token inherits every permission the App installation
+has, and `zizmor` reports it as a high-severity
+[`github-app`](https://docs.zizmor.sh/audits/#github-app) finding. Configure
+the App itself with **Contents** and **Pull requests** read & write, the
+minimum `release-plz` documents; the inputs then narrow each job's token
+further.
 
 ## Cross-platform binary builds and `cargo-auditable`
 

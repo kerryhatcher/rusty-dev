@@ -35,9 +35,12 @@ test:
     cargo nextest run --locked
     cargo test --doc --locked
 
-# Check public API compatibility against the latest crates.io release (libraries).
-semver:
-    cargo semver-checks --locked
+# Check this branch for public API breaks against main, as CI does (libraries).
+# Baseline is the merge base, so commits added to main since branching are not
+# reported as removals. Use `just semver major` for a PR titled `feat!:` etc.
+semver release_type="minor":
+    git fetch origin main
+    cargo semver-checks --baseline-rev "$(git merge-base HEAD origin/main)" --release-type {{release_type}}
 
 # Check dependencies against the RustSec advisory database.
 audit:
