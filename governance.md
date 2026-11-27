@@ -78,8 +78,9 @@ green PR without guesswork:
    `just lint`, `just test`).
 4. **Code standards** — Edition 2024, rolling MSRV, `#[expect(..., reason = "...")]`
    lint policy, regression tests, dependency minimalism, and panic rules.
-5. **PR and release workflow** — Conventional Commits and automated
-   `release-plz` Release PRs.
+5. **PR and release workflow** —
+   [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
+   and automated `release-plz` Release PRs.
 
 ### Example code standards snippet
 
@@ -104,8 +105,9 @@ green PR without guesswork:
 ## Pull requests
 
 1. Branch off `main` (direct pushes are blocked by repository rulesets).
-2. Use [Conventional Commits](https://www.conventionalcommits.org) (`feat:`,
-   `fix:`, `docs:`, `chore:`, `ci:`, `refactor:`, `test:`).
+2. Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
+   in the PR title (`feat:`, `fix:`, `docs:`, `chore:`, `ci:`, `refactor:`,
+   `test:`); it becomes the squash-merge commit message, and CI checks it.
 3. Run `just ci` locally before requesting review.
 4. Do not hand-edit `version` in `Cargo.toml` or `CHANGELOG.md`; `release-plz`
    manages both via automated Release PRs.
@@ -127,8 +129,11 @@ support audit-friendly JSON export, and stack cleanly across an organization):
    - **Dismiss stale pull request approvals when new commits are pushed** and
      **Require approval of the most recent reviewable push**.
    - **Require status checks to pass** (`test`, `lint & doc`, `semver`, `msrv`,
-     `security`, `vet`) with **Require branches to be up to date** (or enable
-     **GitHub Merge Queue** on busy repositories).
+     `security`, `vet`, and `pr-title` from
+     [Release automation](releases.md#enforcing-the-convention)) with
+     **Require branches to be up to date** (or enable **GitHub Merge Queue**
+     on busy repositories, with **Only merge non-failing pull requests**
+     enabled).
    - **Require conversation resolution**, **Require linear history**, and
      **Block force pushes**.
    - **Require signed commits** where compatible with your automated GitHub App
@@ -139,5 +144,6 @@ support audit-friendly JSON export, and stack cleanly across an organization):
 
 - [Contributor Covenant v3.0](https://www.contributor-covenant.org/version/3/0/)
 - [The Cargo Book: `cargo owner` (GitHub team ownership)](https://doc.rust-lang.org/cargo/commands/cargo-owner.html)
+- [Conventional Commits 1.0.0 specification](https://www.conventionalcommits.org/en/v1.0.0/)
 - [GitHub Rulesets documentation](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets)
 - [Rust API Guidelines: Licensing & Metadata](https://rust-lang.github.io/api-guidelines/necessities.html)

@@ -19,6 +19,9 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    commit-message:
+      prefix: "chore" # "chore(deps): bump …"; no release with `release_commits`
+      include: "scope"
     cooldown:
       default-days: 7
       semver-major-days: 14
@@ -34,6 +37,9 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    commit-message:
+      prefix: "ci" # PR title "ci(deps): bump …"
+      include: "scope"
     cooldown:
       default-days: 7
     groups:

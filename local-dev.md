@@ -123,9 +123,10 @@ test, audit, msrv, deny, trivy, zizmor, vet, and geiger, failing fast.
 ## Repo etiquette
 
 - Branch off `main` — direct pushes are blocked by repository rulesets.
-- Use Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`,
-  `test:`); `release-plz` combines these with `cargo-semver-checks` to compute
-  the next version and changelog.
+- Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
+  for commit messages and PR titles (`feat:`, `fix:`, `docs:`, `chore:`,
+  `ci:`, `refactor:`, `test:`); `release-plz` combines these with
+  `cargo-semver-checks` to compute the next version and changelog.
 - Never hand-edit `version` in `Cargo.toml` or `CHANGELOG.md`; `release-plz`
   owns both via automated Release PRs.
 ```
@@ -145,8 +146,9 @@ A good `CONTRIBUTING.md` answers every question a new contributor has on day one
 3. **The check suite** — a table of every `just` recipe and what it protects.
 4. **Code standards** — `#[expect(..., reason = "...")]` lint discipline, test
    expectations, panic policy, and dependency rules.
-5. **Pull request & release flow** — Conventional Commits, branch rulesets, and
-   automated `release-plz` PRs.
+5. **Pull request & release flow** —
+   [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/),
+   branch rulesets, and automated `release-plz` PRs.
 6. **Dual-licensing notice** — explicit confirmation that contributions are
    submitted under `MIT OR Apache-2.0`.
 
@@ -199,4 +201,5 @@ lcov.info
 - [AGENTS.md specification](https://agents.md/)
 - [Claude Code documentation](https://code.claude.com/docs/en/overview)
 - [cargo-binstall](https://github.com/cargo-bins/cargo-binstall)
+- [Conventional Commits 1.0.0 specification](https://www.conventionalcommits.org/en/v1.0.0/)
 - [GitHub: Setting guidelines for repository contributors](https://docs.github.com/en/communities/setting-up-your-project-for-healthy-contributions/setting-guidelines-for-repository-contributors)
