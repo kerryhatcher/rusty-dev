@@ -35,7 +35,7 @@ Before you give a release to an organization, make sure that the project has
 these controls.
 
 - Publish a policy that identifies the supported versions.
-- Provide a private channel for vulnerability reports.
+- Give a private channel for vulnerability reports.
 - Enable branch protection for the default branch.
 - Review the inputs that continuous integration (CI) uses.
 - Pin GitHub Actions to full commit SHAs.
@@ -43,7 +43,7 @@ these controls.
 - Set rules for dependencies, licenses, advisories, and minimum publication age.
 - If you publish to crates.io, use OIDC Trusted Publishing.
 
-Provide these files and instructions with the release.
+Give these files and instructions with the release.
 
 - Publish a software bill of materials (SBOM) with the minimum elements that CISA specifies for 2026.
 - Publish build provenance attestations.

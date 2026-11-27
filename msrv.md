@@ -33,9 +33,11 @@ Set `rust-version.workspace = true` in each member crate.
 
 ## How Cargo Resolver v3 uses the MSRV
 
-Rust Edition 2024 uses Cargo Resolver v3 by default. To select this resolver
-with Rust 1.84 or later, set `resolver = "3"`. The default value of
-`incompatible-rust-versions` is `"fallback"`.
+Cargo selects Resolver v3 by default if the root package uses Rust Edition 2024.
+In a virtual workspace, the editions of member crates do not set the resolver.
+For Resolver v3 in a virtual workspace, set `resolver = "3"` in `[workspace]`.
+To use Resolver v3, use Rust 1.84 or a newer version. Resolver v3 sets `incompatible-rust-versions`
+to `"fallback"` by default.
 
 When you use `cargo add` or `cargo update`, Cargo reads the
 `package.rust-version` value of each candidate dependency. For example, the latest dependency version can make Rust `1.99` necessary.
@@ -120,11 +122,13 @@ before you build the library.
 1. Make sure that the new MSRV agrees with the version policy. For example,
    the policy can permit an increase to N-4 in a minor release only.
 2. Set `rust-version` in `Cargo.toml`.
-3. Update the job name and toolchain in the CI `msrv` job.
-4. Update `AGENTS.md`.
-5. Commit these changes together. Use a commit title that agrees with your
+3. Put the new MSRV in the `msrv` job name.
+4. Set `env.RUSTUP_TOOLCHAIN` in the job to the new MSRV.
+5. Set the toolchain action's `with.toolchain` input to the new MSRV.
+6. Update `AGENTS.md`.
+7. Commit these changes together. Use a commit title that agrees with your
    Semantic Versioning policy, for example `chore: bump MSRV to 1.96`.
-6. If the previous MSRV limited dependency versions, use `cargo update`.
+8. If the previous MSRV limited dependency versions, use `cargo update`.
 
 ## Further reading
 

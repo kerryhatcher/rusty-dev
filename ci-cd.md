@@ -254,8 +254,11 @@ If the repository publishes only binaries, you can omit this job.
 
 ### `msrv` — MSRV enforcement
 
-The job uses the `rust-version` from `Cargo.toml`, for example `"1.96"`.
-It starts the full test suite with `--locked`.
+The workflow sets the MSRV directly. The job starts the full test suite with
+`--locked` on that toolchain.
+
+If you change `rust-version` in `Cargo.toml`, update the workflow in the same commit.
+Refer to [Increase the MSRV](msrv.md#increase-the-msrv).
 
 ### `security` — advisories, licenses, secrets, workflow linting, and `unsafe`
 

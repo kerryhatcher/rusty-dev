@@ -27,12 +27,13 @@ Edition 2024 Rust projects.
   in debug builds. In release builds, the value wraps. Use `.checked_*()`,
   `.saturating_*()`, or `TryFrom` for security-sensitive sizes, offsets, and quotas.
   If a panic or abort is safer than wraparound, set `overflow-checks = true` in `[profile.release]`.
-- Set `unsafe_code = "forbid"` in `[lints.rust]`. If `unsafe` or a foreign
-  function interface (FFI) is necessary, put it in a module with a small safe interface.
+- Set `unsafe_code = "forbid"` in `[lints.rust]` when the crate uses only safe Rust.
+  If `unsafe` is necessary in a reviewed module, set `unsafe_code = "deny"` in `[lints.rust]`.
+  Use `#[allow(unsafe_code)]` only on that module. Give it a small safe interface.
   Keep the Edition 2024 checks for `unsafe_op_in_unsafe_fn`, `unsafe extern`,
   and `#[unsafe(...)]` active. Set `clippy::undocumented_unsafe_blocks = "deny"`.
 - Use reviewed cryptographic libraries. Do not write new cryptographic
-  primitives or TLS implementations. Prefer a memory-safe TLS library such as
+  primitives or TLS implementations. If possible, use a memory-safe TLS library such as
   [`rustls`](https://docs.rs/rustls) with `aws-lc-rs` or `ring`. Clear key
   material on drop with [`zeroize`](https://docs.rs/zeroize) or
   [`secrecy`](https://docs.rs/secrecy). Compare digests and tokens in

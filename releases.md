@@ -341,7 +341,7 @@ If you omit these inputs, the token gets all permissions of the app installation
 ## Cross-platform binary builds and `cargo-auditable`
 
 If you publish compiled command-line or service binaries, use current native GitHub-hosted runners.
-GitHub no longer provides `macos-14`.
+GitHub Actions no longer has `macos-14`.
 
 ```yaml
   build-binaries:
@@ -414,7 +414,8 @@ sha256sum my-crate-*.tar.gz my-crate-*.zip > SHA256SUMS
 cargo cyclonedx --format json --describe binaries
 
 # For a workspace with more than one crate, you can also generate an SPDX 2.3 JSON SBOM.
-cargo sbom --output-format spdx_json_2_3 > my-crate.spdx.json
+mkdir -p dist
+cargo sbom --output-format spdx_json_2_3 > dist/my-crate-sbom.spdx.json
 ```
 
 ### Meeting CISA's 2026 Minimum Elements for an SBOM
@@ -452,7 +453,35 @@ links the file to the repository, commit SHA, and release workflow.
    > publish it. After publication, GitHub prevents changes to the tag and the
    > release files. GitHub also prevents uploads to the release.
 
-6. As the last step of the release job, publish the draft with `gh release edit "$TAG" --draft=false`.
+6. Add a `publish-release` job under `jobs` in the release workflow.
+7. Put `release` and all jobs that upload release files in `needs`.
+   Publication starts only after these jobs succeed. If a different job
+   uploads the SBOMs or `SHA256SUMS`, include that job in `needs` too.
+
+The example uses `build-binaries` for file uploads. The publication job waits for
+all targets in the build matrix. It publishes the draft for each tag that
+`release-plz` reports.
+
+```yaml
+  publish-release:
+    needs: [release, build-binaries]
+    if: ${{ needs.release.outputs.releases_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish draft releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASES: ${{ needs.release.outputs.releases }}
+        run: |
+          tags=$(jq -er '.[].tag' <<< "$RELEASES")
+          while IFS= read -r tag; do
+            gh release edit "$tag" --draft=false
+          done <<< "$tags"
+```
 
 Give adopters the verification commands in `README.md` or the release notes.
 

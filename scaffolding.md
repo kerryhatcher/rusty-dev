@@ -126,8 +126,9 @@ Set `unsafe_code = "forbid"` in `[lints.rust]`. As an alternative, add
 blocks. It also rejects these blocks in macro expansions.
 
 Some foreign function interfaces (FFIs) or low-level primitives make `unsafe` necessary.
-If `unsafe` is necessary, use `"warn"` or `"allow"` only in the applicable scope.
-Keep the Edition 2024 warning
+If `unsafe` is necessary in a reviewed module, set `unsafe_code = "deny"` in `[lints.rust]`.
+Use `#[allow(unsafe_code)]` only on that module. The compiler does not permit
+this exception when the lint level is `"forbid"`. Keep the Edition 2024 warning
 `unsafe_op_in_unsafe_fn` active. Set `clippy::undocumented_unsafe_blocks = "deny"`
 to make a `// SAFETY:` comment mandatory for each `unsafe` block.
 
@@ -152,7 +153,7 @@ flate2 = { version = "1", default-features = false, features = ["rust_backend"] 
 ### Dependency rules
 
 1. Use standard Semantic Versioning ranges, for example `"1"` and `"0.8"`.
-2. Avoid minor-version upper limits such as `<x.y` in libraries. An upper
+2. Do not use minor-version upper limits such as `<x.y` in libraries. An upper
    limit can prevent users from using one dependency version or getting a
    security fix. Resolver v3 gives priority to versions that support the MSRV.
 3. If you use only some features, disable the default features. Each enabled

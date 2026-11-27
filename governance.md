@@ -34,7 +34,7 @@ help channels, and deprecation notice periods.
 
 Use the [Contributor Covenant](https://www.contributor-covenant.org) to set
 community standards and the response procedure. [Version 3.0](https://www.contributor-covenant.org/version/3/0/)
-provides guidance for corrective actions and a tool to generate the code of conduct.
+gives instructions for corrective actions and a tool to generate the code of conduct.
 Projects also use version 2.1.
 
 Give a role email address for reports, for example `conduct@example.com`.

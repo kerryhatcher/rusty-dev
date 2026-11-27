@@ -55,8 +55,19 @@ to commercial manufacturers that put products with digital elements on the
 EU market. They cover actively exploited vulnerabilities and severe
 incidents.
 
-The reporting targets are a 24-hour early warning and a 72-hour
-notification. Use ENISA's Single Reporting Platform. For provisions on open-source projects and Open-Source Software Stewards,
+Use ENISA's Single Reporting Platform. The reporting period starts when you
+first know about the vulnerability or incident. Send an early warning in
+24 hours or less from that time. If the early warning does not contain the
+necessary information, send a notification. Send it in 72 hours or less from the start
+of the reporting period.
+
+If the earlier reports do not contain the necessary information, send a final report.
+
+- For a vulnerability, send it in 14 days or less after a corrective or
+  mitigating measure becomes available.
+- For an incident, send it in one month or less after you send the incident notification.
+
+For provisions on open-source projects and Open-Source Software Stewards,
 refer to the [EU Cyber Resilience Act](https://eur-lex.europa.eu/eli/reg/2024/2847/oj).
 These provisions give information about applicability, fines, and the
 December 11, 2027 start date.

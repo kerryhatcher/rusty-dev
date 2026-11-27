@@ -77,7 +77,15 @@ global-min-publish-age = "7 days"
 ```
 
 If a necessary security patch is newer than the minimum age, examine the advisory.
-Then update that package.
+Then use this command to select the patch.
+
+```bash
+CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE=allow cargo update -p '<crate>' --precise '<version>'
+```
+
+Replace `<crate>` and `<version>` with the crate name and patch version.
+The override applies to all versions that Cargo selects for this command.
+Examine new transitive versions in the `Cargo.lock` diff.
 
 ## Version requirements
 

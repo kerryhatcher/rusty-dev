@@ -88,9 +88,9 @@ The compiler and Clippy give these diagnostics.
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features --locked
 ```
 
-This command finds broken links, incorrect HTML or Markdown in doc comments,
-and warnings for missing crate documentation. The CI check occurs before
-docs.rs builds the release.
+This command treats rustdoc warnings as errors. Examples include warnings
+for broken links and incorrect HTML in doc comments. The CI check occurs
+before docs.rs builds the release.
 
 ### API compatibility: `cargo-semver-checks`
 
