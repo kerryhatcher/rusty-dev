@@ -36,8 +36,9 @@ test:
     cargo test --doc --locked
 
 # Check this branch for public API breaks against main, as CI does (libraries).
-semver:
-    cargo semver-checks --baseline-rev origin/main
+# Use `just semver major` when the PR title is marked breaking (`feat!:`).
+semver release_type="minor":
+    cargo semver-checks --baseline-rev origin/main --release-type {{release_type}}
 
 # Check dependencies against the RustSec advisory database.
 audit:

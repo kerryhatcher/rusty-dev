@@ -236,7 +236,7 @@ jobs:
   release-pr:
     name: release-pr
     if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') }}
-    # Serialize Release PR updates so a slower run never overwrites a newer one.
+    # Serialize Release PR updates; the freshness step below handles ordering.
     concurrency:
       group: release-plz-${{ github.ref }}
       cancel-in-progress: false
@@ -261,7 +261,21 @@ jobs:
           # release-pr pushes the release branch and opens/updates the PR.
           permission-contents: write
           permission-pull-requests: write
+      # `concurrency` does not guarantee runs execute in push order. Skip this
+      # run if `main` has moved on, so an older run never overwrites a Release
+      # PR computed from a newer commit; the newer commit's run updates it.
+      - name: Check this run is for the latest main commit
+        id: fresh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_SHA: ${{ github.sha }}
+        run: |
+          head=$(gh api "repos/$REPO/commits/main" --jq .sha)
+          if [ "$head" = "$RUN_SHA" ]; then latest=true; else latest=false; fi
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
       - name: Update Release PR
+        if: steps.fresh.outputs.latest == 'true'
         uses: release-plz/action@66b324fd6c72d05d2a08568492ecdd62bfb8a62b # v0.5.148
         with:
           command: release-pr
