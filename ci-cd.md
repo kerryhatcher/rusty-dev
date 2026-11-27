@@ -167,6 +167,7 @@ on:
     types: [opened, edited, reopened, synchronize]
   # Required checks must report in merge queues. The job is skipped there (a
   # skipped job reports success) because the PR run already checked the title.
+  # Only safe with the queue's "Only merge non-failing pull requests" setting.
   merge_group:
 
 concurrency:
@@ -241,8 +242,11 @@ jobs:
   detected break cannot merge. `cargo-semver-checks` does not detect every
   kind of break (for example, some return-type changes), so reviewers still
   need to check for a missing `!`.
-- Runs only on pull requests. Release-time checks against the published crate
-  are done by `release-plz` (`semver_check = true`).
+- Runs only on pull requests; merge-queue runs skip it and report success. If
+  you use GitHub Merge Queue, enable **Only merge non-failing pull requests**,
+  or a PR whose `semver` check failed can merge as part of a group. Release-time
+  checks against the published crate are done by `release-plz`
+  (`semver_check = true`).
 - Binary-only repositories without a published library target can omit this
   job.
 
