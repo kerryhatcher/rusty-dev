@@ -24,7 +24,7 @@ exclude = ["docs/", "assets/", ".github/", "justfile"]
 
 | Field | Purpose |
 |-------|---------|
-| `edition` | Set the value to `"2024"`. Rust 1.85 added support for this edition. It enables Cargo Resolver v3 and the 2024 format defaults. It also enables `unsafe_op_in_unsafe_fn` warnings, `unsafe extern` blocks, and `#[unsafe(...)]` attributes. |
+| `edition` | Set the value to `"2024"`. Rust 1.85 added support for this edition. It enables the 2024 format defaults, `unsafe_op_in_unsafe_fn` warnings, `unsafe extern` blocks, and `#[unsafe(...)]` attributes. Cargo selects Resolver v3 by default if the root package uses Edition 2024. In a virtual workspace, set `resolver = "3"` in `[workspace]`. Refer to the [MSRV guide](msrv.md#how-cargo-resolver-v3-uses-the-msrv). |
 | `rust-version` | Set the minimum supported Rust version (MSRV). For example, set `"1.96"` for an N-4 policy when stable is `1.100`. Cargo Resolver v3 and CI use this value. Refer to the [MSRV guide](msrv.md). |
 | `license` | Set the value to `"MIT OR Apache-2.0"`. For `cargo publish`, a license and a description are necessary. Refer to [Licensing](#licensing). |
 | `repository` | Set the URL of the source repository. `cargo publish` gives a warning when `repository`, `homepage`, and `documentation` are all absent. Crates.io uses the URL for provenance links. |
@@ -127,7 +127,7 @@ blocks. It also rejects these blocks in macro expansions.
 
 Some foreign function interfaces (FFIs) or low-level primitives make `unsafe` necessary.
 If `unsafe` is necessary in a reviewed module, set `unsafe_code = "deny"` in `[lints.rust]`.
-Use `#[allow(unsafe_code)]` only on that module. The compiler does not permit
+Use `#[allow(unsafe_code)]` only on that module. The compiler rejects
 this exception when the lint level is `"forbid"`. Keep the Edition 2024 warning
 `unsafe_op_in_unsafe_fn` active. Set `clippy::undocumented_unsafe_blocks = "deny"`
 to make a `// SAFETY:` comment mandatory for each `unsafe` block.
@@ -153,8 +153,8 @@ flate2 = { version = "1", default-features = false, features = ["rust_backend"] 
 ### Dependency rules
 
 1. Use standard Semantic Versioning ranges, for example `"1"` and `"0.8"`.
-2. Do not use minor-version upper limits such as `<x.y` in libraries. An upper
-   limit can prevent users from using one dependency version or getting a
+2. Do not set a maximum minor version with a constraint such as `<x.y` in libraries.
+   This constraint can prevent users from using one dependency version or getting a
    security fix. Resolver v3 gives priority to versions that support the MSRV.
 3. If you use only some features, disable the default features. Each enabled
    feature can add dependencies that you must audit.

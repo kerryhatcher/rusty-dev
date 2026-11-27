@@ -29,7 +29,7 @@ Edition 2024 Rust projects.
   If a panic or abort is safer than wraparound, set `overflow-checks = true` in `[profile.release]`.
 - Set `unsafe_code = "forbid"` in `[lints.rust]` when the crate uses only safe Rust.
   If `unsafe` is necessary in a reviewed module, set `unsafe_code = "deny"` in `[lints.rust]`.
-  Use `#[allow(unsafe_code)]` only on that module. Give it a small safe interface.
+  Use `#[allow(unsafe_code)]` only on that module. Give the module a small safe interface.
   Keep the Edition 2024 checks for `unsafe_op_in_unsafe_fn`, `unsafe extern`,
   and `#[unsafe(...)]` active. Set `clippy::undocumented_unsafe_blocks = "deny"`.
 - Use reviewed cryptographic libraries. Do not write new cryptographic

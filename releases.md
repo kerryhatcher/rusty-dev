@@ -404,18 +404,38 @@ can check a deployed binary without the source code or `Cargo.lock`.
 ## Release files and verification
 
 Put each binary in an archive with `README.md`, `LICENSE-MIT`, and `LICENSE-APACHE`.
-Publish the files that adopters use to check the release.
+Put all release archives in `dist/`. In the binary crate directory, set
+`TARGET` to the target triple for the release build. Use the same Cargo
+features that you use for the build.
 
 ```bash
-# Make a SHA-256 checksum file for all release archives.
-sha256sum my-crate-*.tar.gz my-crate-*.zip > SHA256SUMS
-
-# Generate a CycloneDX SBOM for the release target without development dependencies.
-cargo cyclonedx --format json --describe binaries
-
-# For a workspace with more than one crate, you can also generate an SPDX 2.3 JSON SBOM.
 mkdir -p dist
+cargo cyclonedx --format json --describe binaries --target "$TARGET" --target-in-filename
+mv -- ./*.cdx.json dist/
+```
+
+`cargo cyclonedx` writes each SBOM next to its crate manifest. For a workspace,
+copy the SBOMs for the release binaries from the member directories to `dist/`.
+For a workspace with more than one crate, you can also generate an SPDX 2.3 JSON SBOM.
+
+```bash
 cargo sbom --output-format spdx_json_2_3 > dist/my-crate-sbom.spdx.json
+```
+
+When `dist/` contains all release archives and SBOMs, make the checksum file.
+This Bash example uses file names without the `dist/` path. Thus, adopters can
+check the files in their download directory.
+
+```bash
+(
+  set -e
+  cd dist
+  shopt -s nullglob
+  archives=(my-crate-*.tar.gz my-crate-*.zip)
+  sboms=(*.cdx.json my-crate-*.spdx.json)
+  (( ${#archives[@]} > 0 && ${#sboms[@]} > 0 ))
+  sha256sum -- "${archives[@]}" "${sboms[@]}" > SHA256SUMS
+)
 ```
 
 ### Meeting CISA's 2026 Minimum Elements for an SBOM
@@ -440,7 +460,9 @@ links the file to the repository, commit SHA, and release workflow.
       - name: Attest release artifacts
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-path: dist/my-crate-*
+          subject-path: |
+            dist/my-crate-*
+            dist/*.cdx.json
 ```
 
 1. On GitHub, open the repository **Settings**.
@@ -482,6 +504,11 @@ all targets in the build matrix. It publishes the draft for each tag that
             gh release edit "$tag" --draft=false
           done <<< "$tags"
 ```
+
+The example uses the default `GITHUB_TOKEN` to publish the drafts. This token
+does not start workflows that use `on: release`. If publication must start
+another workflow, use a GitHub App installation token with `contents: write`
+for `GH_TOKEN`.
 
 Give adopters the verification commands in `README.md` or the release notes.
 
