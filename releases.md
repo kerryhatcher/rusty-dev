@@ -252,11 +252,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
-      - uses: actions/create-github-app-token@f418cffdfd93fef6b8c199859f5f0b5d0bf93c4b # v3.4.0
+      - uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         id: app-token
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          # Scope the token below the App's installation permissions:
+          # release-pr pushes the release branch and opens/updates the PR.
+          permission-contents: write
+          permission-pull-requests: write
       - name: Update Release PR
         uses: release-plz/action@66b324fd6c72d05d2a08568492ecdd62bfb8a62b # v0.5.148
         with:
@@ -284,11 +288,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
-      - uses: actions/create-github-app-token@f418cffdfd93fef6b8c199859f5f0b5d0bf93c4b # v3.4.0
+      - uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         id: app-token
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          # release pushes tags and GitHub Releases; it only reads PRs (to
+          # find the merged Release PR and credit contributors).
+          permission-contents: write
+          permission-pull-requests: read
       - name: Release crates and tag
         id: rp
         uses: release-plz/action@66b324fd6c72d05d2a08568492ecdd62bfb8a62b # v0.5.148
@@ -306,6 +314,14 @@ CI checks on the Release PR or downstream tag workflows. Minting a short-lived
 installation token via `actions/create-github-app-token@v3` from a minimally
 scoped GitHub App ensures the Release PR runs full CI before merge and any
 tag-triggered jobs fire reliably.
+
+Request only the permissions each job needs with the action's `permission-*`
+inputs. Without them, the token inherits every permission the App installation
+has, and `zizmor` reports it as a high-severity
+[`github-app`](https://docs.zizmor.sh/audits/#github-app) finding. Configure
+the App itself with **Contents** and **Pull requests** read & write, the
+minimum `release-plz` documents; the inputs then narrow each job's token
+further.
 
 ## Cross-platform binary builds and `cargo-auditable`
 
