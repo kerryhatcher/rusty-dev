@@ -49,10 +49,12 @@ Mark every breaking change with `!` in the commit header (`feat!:`,
 anchored to the header, and with squash merges the footer never reaches `main`
 anyway, so a footer-only breaking change can be released as a minor or patch
 bump. A `!` in the header is the only marker this setup preserves. The CI
-[`semver` job](ci-cd.md#semver--public-api-compatibility-libraries) fails any
-PR that breaks the library's public API without `!` in its title. It cannot see
-behavioral changes or CLI breaks in binaries, so reviewers should still check
-for a missing `!`.
+[`semver` job](ci-cd.md#semver--public-api-compatibility-libraries) fails a PR
+whose title lacks `!` when `cargo-semver-checks` detects a public API break.
+It does not detect every kind of API break (for example, some parameter and
+return-type changes), and it cannot see behavioral changes or CLI breaks in
+binaries. Reviewers should still check library API changes, behavior, and CLI
+changes for a missing `!`.
 
 The full grammar (types, optional `(scope)`, `!`, and `BREAKING CHANGE:`
 footers) is defined by the
@@ -240,6 +242,10 @@ jobs:
     concurrency:
       group: release-plz-${{ github.ref }}
       cancel-in-progress: false
+      # Keep every pending run (FIFO) instead of letting a newly queued run
+      # replace a pending one, so the run for the newest commit is never lost.
+      # (actionlint <= 1.7.12 does not know this key yet: rhysd/actionlint#654.)
+      queue: max
     runs-on: ubuntu-latest
     permissions:
       contents: write

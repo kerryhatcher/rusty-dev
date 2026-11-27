@@ -106,9 +106,12 @@ tightening trait bounds, or dropping an auto-trait like `Send` or `Sync`):
 # Against the latest crates.io release (the default baseline)
 cargo semver-checks
 
-# Against your branch's base, as CI does for pull requests. Use `major`
-# instead of `minor` when the PR title is marked breaking (`feat!:`).
-cargo semver-checks --baseline-rev origin/main --release-type minor
+# Against the point where your branch left main, so only your branch's changes
+# are judged (as CI does). Comparing with `origin/main` directly would report
+# items that main added since you branched as "removed". Use `major` instead of
+# `minor` when the PR title is marked breaking (`feat!:`).
+git fetch origin main
+cargo semver-checks --baseline-rev "$(git merge-base HEAD origin/main)" --release-type minor
 ```
 
 `cargo-semver-checks` has no `--locked` flag and rejects it. In CI, the

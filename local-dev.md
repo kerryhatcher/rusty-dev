@@ -36,9 +36,11 @@ test:
     cargo test --doc --locked
 
 # Check this branch for public API breaks against main, as CI does (libraries).
-# Use `just semver major` when the PR title is marked breaking (`feat!:`).
+# Baseline is the merge base, so commits added to main since branching are not
+# reported as removals. Use `just semver major` for a PR titled `feat!:` etc.
 semver release_type="minor":
-    cargo semver-checks --baseline-rev origin/main --release-type {{release_type}}
+    git fetch origin main
+    cargo semver-checks --baseline-rev "$(git merge-base HEAD origin/main)" --release-type {{release_type}}
 
 # Check dependencies against the RustSec advisory database.
 audit:
