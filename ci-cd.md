@@ -28,6 +28,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Required checks must also report on merge queue runs, or a queue waits on
+  # them forever. Merge-group refs are unique, so they are never cancelled.
+  merge_group:
   schedule:
     # Weekly scan catches newly published advisories on quiet repositories.
     - cron: "0 6 * * 1"
@@ -88,10 +91,14 @@ jobs:
 
   semver:
     name: semver
+    # PR-only: the PR title says whether a break is intentional. A job skipped
+    # by `if:` reports success, so merge-group runs rely on the PR run.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0 # the baseline commit must exist locally
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
@@ -100,7 +107,20 @@ jobs:
       - uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2.90.11
         with:
           tool: cargo-semver-checks
-      - run: cargo semver-checks --locked
+      - name: Check API changes against the base branch
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          # Through env, never inline `${{ }}`, so a title cannot inject shell.
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          # A title marked breaking (`feat!:`, `refactor(api)!:`) declares an
+          # intentional break: reviewers approve it and release-plz bumps the
+          # major version. Any other title must not break the public API.
+          release_type=minor
+          if [[ "$TITLE" =~ ^[a-z]+(\([^\)]*\))?!: ]]; then
+            release_type=major
+          fi
+          cargo semver-checks --baseline-rev "$BASE_SHA" --release-type "$release_type"
 
   msrv:
     name: msrv (1.96)
@@ -179,9 +199,21 @@ jobs:
 
 ### `semver` — public API compatibility (libraries)
 
-- Uses `cargo-semver-checks` to prevent accidental breaking API changes from
-  merging without an intentional major bump. (Binary-only repositories without
-  a published library target can omit this job.)
+- Uses `cargo-semver-checks` to compare the PR against its base commit
+  (`--baseline-rev`), so each PR is judged only on the API changes it
+  introduces. Comparing against crates.io instead would keep failing every PR
+  after an intentional break merges, until the next release ships.
+- An intentional break needs no version edit and no override: mark the PR
+  title with `!` (see [Commit conventions](releases.md#commit-conventions)). The
+  job then checks with `--release-type major`, the break is visible in the
+  title for reviewers to approve, and `release-plz` bumps the major version
+  (minor on `0.x`) in the next Release PR. Without `!`, it checks with
+  `--release-type minor` and fails on any break, so an unmarked break cannot
+  merge.
+- Runs only on pull requests. Release-time checks against the published crate
+  are done by `release-plz` (`semver_check = true`).
+- Binary-only repositories without a published library target can omit this
+  job.
 
 ### `msrv` — MSRV enforcement
 

@@ -49,9 +49,10 @@ Mark every breaking change with `!` in the commit header (`feat!:`,
 anchored to the header, and with squash merges the footer never reaches `main`
 anyway, so a footer-only breaking change can be released as a minor or patch
 bump. A `!` in the header is the only marker this setup preserves. The CI
-[`semver` job](ci-cd.md#semver--public-api-compatibility-libraries) catches many
-library API breaks on the PR itself, but not all of them, and not behavioral or
-CLI breaks in binaries, so reviewers should check for a missing `!`.
+[`semver` job](ci-cd.md#semver--public-api-compatibility-libraries) fails any
+PR that breaks the library's public API without `!` in its title. It cannot see
+behavioral changes or CLI breaks in binaries, so reviewers should still check
+for a missing `!`.
 
 The full grammar (types, optional `(scope)`, `!`, and `BREAKING CHANGE:`
 footers) is defined by the
@@ -176,6 +177,24 @@ git_tag_name = "v{{ version }}"
 
 - **Never hand-edit `version` in `Cargo.toml` or `CHANGELOG.md`.** Merge the
   automated Release PR when you are ready to ship.
+- **Merge the Release PR only when it is current.** `release-plz release`
+  publishes whatever is on `main` after the merge, not the tree that was
+  reviewed in the Release PR. If another PR merges after the Release PR was
+  last regenerated, that change ships under a version number and changelog that
+  were computed without it (for example, a breaking change released as a minor
+  bump). The `release-pr` job regenerates the Release PR on every push to
+  `main`, so before merging:
+  - Wait for the `release-pr` run for the latest `main` commit to finish, then
+    re-review the version and changelog it produced.
+  - Never click **Update branch** on the Release PR. That merges `main` into it
+    without recomputing the version or changelog. Let `release-plz` regenerate
+    it instead.
+  - Keep **Require branches to be up to date** enabled (see
+    [Project governance](governance.md#branch-and-tag-protection-with-github-rulesets)),
+    so a Release PR built on an older `main` cannot merge.
+  - With a merge queue, add the Release PR only when no other PR is queued:
+    the queue would otherwise merge it on top of PRs it was not computed
+    from.
 - **Bootstrap `0.1.0` once manually.** Crates.io requires the very first release
   of a brand-new crate name to be published manually so you can configure
   Trusted Publishing settings on crates.io; every subsequent release runs
@@ -217,6 +236,10 @@ jobs:
   release-pr:
     name: release-pr
     if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') }}
+    # Serialize Release PR updates so a slower run never overwrites a newer one.
+    concurrency:
+      group: release-plz-${{ github.ref }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
       contents: write

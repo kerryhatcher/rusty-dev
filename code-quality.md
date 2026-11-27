@@ -103,8 +103,17 @@ release and catch accidental breaking changes (such as removing a public item,
 tightening trait bounds, or dropping an auto-trait like `Send` or `Sync`):
 
 ```bash
-cargo semver-checks --locked
+# Against the latest crates.io release (the default baseline)
+cargo semver-checks
+
+# Against your branch's base, as CI does for pull requests
+cargo semver-checks --baseline-rev origin/main
 ```
+
+`cargo-semver-checks` has no `--locked` flag and rejects it. In CI, the
+[`semver` job](ci-cd.md#semver--public-api-compatibility-libraries) checks each
+PR against its base and accepts intentional breaks only when the PR title is
+marked `!`.
 
 ## The `justfile`
 

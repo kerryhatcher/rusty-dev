@@ -35,9 +35,9 @@ test:
     cargo nextest run --locked
     cargo test --doc --locked
 
-# Check public API compatibility against the latest crates.io release (libraries).
+# Check this branch for public API breaks against main, as CI does (libraries).
 semver:
-    cargo semver-checks --locked
+    cargo semver-checks --baseline-rev origin/main
 
 # Check dependencies against the RustSec advisory database.
 audit:
